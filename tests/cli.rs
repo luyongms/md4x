@@ -12,3 +12,12 @@ fn version_flag_prints_version_and_exits_zero() {
     assert!(stdout.contains("md4x"), "stdout was: {stdout}");
     assert!(stdout.contains("0.1.1"), "stdout was: {stdout}");
 }
+
+#[test]
+fn help_flag_lists_required_args() {
+    let out = Command::new(md4x_bin()).arg("--help").output().unwrap();
+    assert!(out.status.success());
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("INPUT"), "missing INPUT in help: {stdout}");
+    assert!(stdout.contains("--to"),  "missing --to in help: {stdout}");
+}
