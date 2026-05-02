@@ -1,0 +1,368 @@
+/* =====================================================================
+   STEM textbook style — Charter/Cambria serif body, sans-serif heads,
+   numbered chapters/sections, theorem-style callouts, KaTeX math.
+   Conservative palette: black, dark gray, navy accent (#1e3a5f).
+   ===================================================================== */
+
+@page {
+  size: A4;
+  margin: 24mm 22mm 22mm 22mm;
+  @top-left {
+    content: string(doc-title);
+    font-family: "Helvetica Neue", "Inter", -apple-system, sans-serif;
+    font-size: 8pt;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #777;
+  }
+  @top-right {
+    content: string(section-title);
+    font-family: "Helvetica Neue", "Inter", -apple-system, sans-serif;
+    font-size: 8pt;
+    letter-spacing: 0.06em;
+    color: #777;
+    font-style: italic;
+  }
+  @bottom-center {
+    content: counter(page);
+    font-family: "Charter", "Cambria", Georgia, serif;
+    font-size: 9pt;
+    color: #555;
+  }
+}
+
+/* Cover page */
+@page :first {
+  margin: 0;
+  @top-left { content: none; }
+  @top-right { content: none; }
+  @bottom-center { content: none; }
+}
+
+html {
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+body {
+  font-family: "Charter", "Cambria", "Iowan Old Style", "Source Serif Pro", "Source Serif 4", Georgia, serif;
+  font-size: 11pt;
+  line-height: 1.55;
+  color: #111;
+  background: #fff;
+  hyphens: auto;
+  -webkit-hyphens: auto;
+  text-rendering: geometricPrecision;
+  font-feature-settings: "kern" 1, "liga" 1, "onum" 1;
+  margin: 0;
+  padding: 0;
+  max-width: none;
+}
+
+/* Cover ---------------------------------------------------------------- */
+.cover-page {
+  position: relative;
+  width: calc(100% + 44mm);
+  height: 297mm;
+  margin: -24mm -22mm 0 -22mm;
+  page-break-after: always;
+  break-after: page;
+  background: #fff;
+  padding: 0;
+  overflow: hidden;
+}
+.cover-content {
+  position: absolute;
+  top: 60mm;
+  left: 28mm;
+  right: 28mm;
+  bottom: 28mm;
+  display: flex;
+  flex-direction: column;
+}
+.cover-eyebrow {
+  font-family: "Helvetica Neue", "Inter", sans-serif;
+  font-size: 9pt;
+  text-transform: uppercase;
+  letter-spacing: 0.22em;
+  color: #1e3a5f;
+  font-weight: 600;
+  margin: 0 0 6mm 0;
+}
+.cover-title {
+  font-family: "Charter", "Cambria", "Iowan Old Style", Georgia, serif;
+  font-size: 38pt;
+  line-height: 1.1;
+  letter-spacing: -0.015em;
+  font-weight: 700;
+  color: #111;
+  margin: 0 0 0 0;
+  max-width: 130mm;
+}
+.cover-title em {
+  font-style: italic;
+  font-weight: 400;
+  color: #1e3a5f;
+}
+.cover-subtitle {
+  font-family: "Charter", "Cambria", Georgia, serif;
+  font-size: 13pt;
+  font-style: italic;
+  font-weight: 400;
+  line-height: 1.4;
+  color: #444;
+  max-width: 120mm;
+  margin: 12mm 0 0 0;
+}
+.cover-rule {
+  width: 36mm;
+  height: 1px;
+  background: #1e3a5f;
+  margin: 14mm 0 14mm 0;
+}
+.cover-author {
+  font-family: "Charter", "Cambria", Georgia, serif;
+  font-size: 12pt;
+  color: #111;
+  margin: 0 0 4mm 0;
+}
+.cover-meta {
+  font-family: "Helvetica Neue", "Inter", sans-serif;
+  font-size: 8.5pt;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: #555;
+  margin: auto 0 0 0;
+}
+.cover-meta strong { color: #111; font-weight: 600; }
+
+/* Hide pandoc's auto-generated title block + first H1 (cover already shows it) */
+header#title-block-header { display: none; }
+body > h1:first-of-type { display: none; }
+
+/* String-set for running headers */
+h1 { string-set: doc-title content(); }
+h2 { string-set: section-title content(); }
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: "Helvetica Neue", "Inter", -apple-system, sans-serif;
+  color: #111;
+  font-weight: 700;
+  page-break-after: avoid;
+  break-after: avoid;
+}
+
+h1 {
+  font-size: 26pt;
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+  margin: 0 0 8mm 0;
+  padding-top: 6mm;
+}
+
+/* Page break before each chapter */
+body > h1:not(:first-of-type) {
+  page-break-before: always;
+  break-before: page;
+}
+
+/* Chapter / Section / Subsection numbering */
+body { counter-reset: chap; }
+h1 { counter-reset: sec; counter-increment: chap; }
+h2 { counter-reset: subsec; counter-increment: sec; }
+h3 { counter-increment: subsec; }
+
+body > h1:not(:first-of-type)::before {
+  content: "Chapter " counter(chap);
+  display: block;
+  font-family: "Helvetica Neue", "Inter", sans-serif;
+  font-size: 11pt;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: #1e3a5f;
+  margin: 0 0 4mm 0;
+}
+
+h2 {
+  font-size: 15pt;
+  line-height: 1.2;
+  margin: 9mm 0 3mm 0;
+}
+h2::before {
+  content: counter(chap) "." counter(sec) "  ";
+  color: #1e3a5f;
+  font-weight: 700;
+}
+
+h3 {
+  font-size: 11.5pt;
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 700;
+  color: #1e3a5f;
+  margin: 6mm 0 2mm 0;
+}
+h3::before {
+  content: counter(chap) "." counter(sec) "." counter(subsec) "  ";
+  color: #888;
+  font-weight: 400;
+}
+
+h4 {
+  font-family: "Charter", "Cambria", Georgia, serif;
+  font-size: 11pt;
+  font-style: italic;
+  font-weight: 700;
+  color: #222;
+  margin: 4mm 0 1.5mm 0;
+}
+
+p {
+  margin: 0 0 3mm 0;
+  text-align: justify;
+  orphans: 3;
+  widows: 3;
+}
+
+/* First paragraph after H2/H3 — left-align (looks better) */
+h2 + p, h3 + p { text-align: left; }
+
+/* Theorem / Definition / Proof callout — styled blockquote with light navy ground */
+blockquote {
+  margin: 4mm 0;
+  padding: 3.5mm 5mm;
+  background: #f4f6fa;
+  border-left: 3px solid #1e3a5f;
+  font-style: normal;
+  font-size: 10.5pt;
+  line-height: 1.5;
+  color: #111;
+  page-break-inside: avoid;
+}
+blockquote p { text-align: left; margin-bottom: 2mm; }
+blockquote p:last-child { margin-bottom: 0; }
+blockquote strong:first-child {
+  font-family: "Helvetica Neue", "Inter", sans-serif;
+  color: #1e3a5f;
+  letter-spacing: 0.02em;
+}
+
+/* Inline + display math — KaTeX rendered */
+.katex { font-size: 1.0em; }
+.katex-display {
+  margin: 4mm 0;
+  page-break-inside: avoid;
+}
+
+code {
+  font-family: "JetBrains Mono", "SF Mono", "Fira Code", Menlo, Consolas, monospace;
+  font-size: 9pt;
+  background: #f5f5f5;
+  padding: 0 4px;
+  border-radius: 2px;
+  color: #5a2a00;
+  font-weight: 500;
+}
+
+pre {
+  background: #f5f5f5;
+  color: #1a1a1a;
+  padding: 4mm 5mm;
+  border-radius: 3px;
+  border: 1px solid #e0e0e0;
+  font-size: 8.6pt;
+  line-height: 1.55;
+  overflow: hidden;
+  page-break-inside: avoid;
+  margin: 4mm 0;
+}
+pre code { background: none; color: inherit; padding: 0; font-weight: 400; font-size: inherit; }
+
+/* Tables — formal, ruled */
+table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 4mm 0;
+  font-size: 9.5pt;
+  font-family: "Charter", "Cambria", Georgia, serif;
+  page-break-inside: avoid;
+  border-top: 1.5pt solid #111;
+  border-bottom: 1.5pt solid #111;
+}
+th {
+  text-align: left;
+  padding: 2mm 3mm;
+  font-weight: 700;
+  font-family: "Helvetica Neue", "Inter", sans-serif;
+  font-size: 9pt;
+  letter-spacing: 0.02em;
+  color: #111;
+  border-bottom: 0.6pt solid #111;
+}
+td {
+  padding: 2mm 3mm;
+  border-bottom: 0.4pt solid #ddd;
+  vertical-align: top;
+  color: #111;
+}
+tr:last-child td { border-bottom: none; }
+
+/* Lists */
+ul, ol {
+  margin: 2mm 0 4mm 6mm;
+  padding: 0;
+}
+li {
+  margin: 1mm 0;
+  line-height: 1.55;
+}
+li > p { margin: 0 0 1.5mm 0; text-align: left; }
+
+/* Horizontal rule */
+hr {
+  border: none;
+  border-top: 0.6pt solid #888;
+  margin: 8mm 0;
+  height: 0;
+}
+
+/* Diagrams — centered, captioned */
+p.diagram {
+  text-align: center;
+  margin: 6mm 0;
+  page-break-inside: avoid;
+}
+p.diagram img {
+  max-width: 100%;
+  max-height: 200mm;
+  height: auto;
+}
+/* Figure caption: italic, 9.5pt, navy */
+.figure-caption {
+  font-family: "Charter", "Cambria", Georgia, serif;
+  font-style: italic;
+  font-size: 9.5pt;
+  color: #444;
+  text-align: center;
+  margin-top: 1mm;
+}
+
+/* Inline emphasis */
+strong { font-weight: 700; color: #111; }
+em { font-style: italic; }
+
+a {
+  color: #1e3a5f;
+  text-decoration: none;
+  border-bottom: 1px solid rgba(30, 58, 95, 0.4);
+}
+
+/* Definition lists / footnotes */
+dl { margin: 4mm 0; }
+dt { font-weight: 700; color: #111; margin-top: 3mm; }
+dd { margin: 1mm 0 0 6mm; color: #333; }
+
+/* Avoid orphaned headings, broken tables/code/quotes */
+h1, h2, h3, h4 { break-after: avoid-page; }
+table, pre, blockquote, p.diagram { break-inside: avoid; }

@@ -1,0 +1,335 @@
+/* =====================================================================
+   Swiss style template — International Typographic Style
+   Helvetica · grid · ragged-right · restrained palette · numbered sections
+   Black + single red accent.
+   ===================================================================== */
+
+@page {
+  size: A4;
+  margin: 22mm 22mm 24mm 22mm;
+  @top-left {
+    content: string(doc-title);
+    font-family: "Helvetica Neue", "Inter", -apple-system, Helvetica, Arial, sans-serif;
+    font-size: 8pt;
+    letter-spacing: 0.04em;
+    color: #000;
+  }
+  @top-right {
+    content: counter(page);
+    font-family: "Helvetica Neue", "Inter", -apple-system, Helvetica, Arial, sans-serif;
+    font-size: 8pt;
+    color: #000;
+  }
+  @bottom-center { content: none; }
+}
+
+/* Cover page — no header/footer */
+@page :first {
+  margin: 0;
+  @top-left { content: none; }
+  @top-right { content: none; }
+  @bottom-center { content: none; }
+}
+
+html {
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+body {
+  font-family: "Helvetica Neue", "Inter", -apple-system, Helvetica, Arial, sans-serif;
+  font-size: 10pt;
+  line-height: 1.45;
+  color: #000;
+  background: #fff;
+  text-align: left;          /* ragged right — never justified */
+  hyphens: none;
+  -webkit-hyphens: none;
+  font-feature-settings: "kern" 1, "tnum" 1;
+  margin: 0;
+  padding: 0;
+  max-width: none;
+}
+
+/* Cover ---------------------------------------------------------------- */
+.cover-page {
+  position: relative;
+  width: calc(100% + 44mm);
+  height: 297mm;
+  margin: -22mm -22mm 0 -22mm;
+  page-break-after: always;
+  break-after: page;
+  background: #fff;
+  padding: 0;
+  overflow: hidden;
+}
+/* Right-side red color field — Swiss-style structural color block */
+.cover-block-right {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 70mm;
+  height: 100%;
+  background: #a85a2a;
+}
+.cover-content {
+  position: absolute;
+  top: 32mm;
+  left: 22mm;
+  right: 92mm;       /* leave room for the 70mm red block + 22mm gutter */
+  bottom: 22mm;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+.cover-eyebrow {
+  font-family: "Helvetica Neue", Helvetica, sans-serif;
+  font-size: 9pt;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: #a85a2a;
+  margin: 0;
+}
+.cover-title {
+  font-family: "Helvetica Neue", Helvetica, sans-serif;
+  font-size: 56pt;
+  line-height: 1.0;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  color: #000;
+  margin: 24mm 0 0 0;
+  max-width: 140mm;
+}
+.cover-subtitle {
+  font-family: "Helvetica Neue", Helvetica, sans-serif;
+  font-size: 12pt;
+  font-weight: 400;
+  line-height: 1.35;
+  color: #000;
+  max-width: 110mm;
+  margin: 12mm 0 0 0;
+}
+.cover-rule {
+  width: 24mm;
+  height: 4px;
+  background: #a85a2a;
+  margin: 12mm 0 0 0;
+}
+.cover-meta {
+  font-family: "Helvetica Neue", Helvetica, sans-serif;
+  font-size: 8pt;
+  font-weight: 400;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: #000;
+  margin: 0;
+}
+.cover-meta strong { font-weight: 700; }
+
+/* Hide pandoc's auto-generated title block */
+header#title-block-header { display: none; }
+/* Hide article's first H1 (cover already shows it) */
+body > h1:first-of-type { display: none; }
+
+/* String-set for running headers */
+h1 { string-set: doc-title content(); }
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: "Helvetica Neue", "Inter", Helvetica, Arial, sans-serif;
+  color: #000;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  page-break-after: avoid;
+  break-after: avoid;
+}
+
+h1 {
+  font-size: 22pt;
+  line-height: 1.15;
+  margin: 0 0 8mm 0;
+  padding-top: 6mm;
+}
+
+/* Page break before each top-level article section (not the cover title) */
+body > h1:not(:first-of-type) {
+  page-break-before: always;
+  break-before: page;
+}
+
+/* Sectional numbering — Swiss tradition */
+body { counter-reset: h1counter; }
+h1 { counter-reset: h2counter; counter-increment: h1counter; }
+h2 { counter-reset: h3counter; counter-increment: h2counter; }
+body > h1:not(:first-of-type)::before {
+  content: counter(h1counter) "  ";
+  color: #a85a2a;
+  font-weight: 700;
+}
+h2::before {
+  content: counter(h1counter) "." counter(h2counter) "  ";
+  color: #a85a2a;
+  font-weight: 400;
+}
+
+h2 {
+  font-size: 13pt;
+  line-height: 1.25;
+  margin: 8mm 0 3mm 0;
+}
+
+h3 {
+  font-size: 10pt;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-weight: 700;
+  color: #000;
+  margin: 6mm 0 2mm 0;
+}
+
+h4 {
+  font-size: 10pt;
+  font-weight: 700;
+  margin: 4mm 0 1.5mm 0;
+}
+
+p {
+  margin: 0 0 3mm 0;
+  text-align: left;          /* ragged right */
+  orphans: 3;
+  widows: 3;
+}
+
+/* No drop cap — Swiss style is rationalist, not editorial */
+h1 + p {
+  font-size: 11pt;
+  line-height: 1.5;
+}
+
+blockquote {
+  margin: 4mm 0;
+  padding: 0 0 0 6mm;
+  border-left: 2px solid #a85a2a;
+  font-style: normal;
+  font-size: 10pt;
+  line-height: 1.5;
+  color: #000;
+  page-break-inside: avoid;
+}
+
+code {
+  font-family: "JetBrains Mono", "SF Mono", "Fira Code", Menlo, Consolas, monospace;
+  font-size: 9pt;
+  background: #f0f0f0;
+  padding: 0 3px;
+  color: #000;
+  border-radius: 0;          /* no rounding — Swiss is geometric */
+}
+
+pre {
+  background: #f0f0f0;
+  color: #000;
+  padding: 4mm 5mm;
+  border-radius: 0;
+  border: none;
+  font-size: 8.5pt;
+  line-height: 1.55;
+  overflow: hidden;
+  page-break-inside: avoid;
+  margin: 4mm 0;
+}
+
+pre code {
+  background: none;
+  color: inherit;
+  padding: 0;
+  font-size: inherit;
+  font-weight: 400;
+}
+
+/* Tables — top/bottom rules only, monolinear */
+table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 4mm 0;
+  font-size: 9pt;
+  font-family: "Helvetica Neue", "Inter", Helvetica, sans-serif;
+  page-break-inside: avoid;
+  border-top: 1px solid #000;
+  border-bottom: 1px solid #000;
+}
+
+th {
+  text-align: left;
+  padding: 2mm 3mm;
+  font-weight: 700;
+  font-size: 8pt;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #000;
+  border-bottom: 1px solid #000;
+}
+
+td {
+  padding: 2mm 3mm;
+  border-bottom: 1px solid #ddd;
+  vertical-align: top;
+  color: #000;
+}
+
+tr:last-child td { border-bottom: none; }
+
+/* Lists */
+ul, ol {
+  margin: 2mm 0 4mm 6mm;
+  padding: 0;
+}
+
+li {
+  margin: 1mm 0;
+  line-height: 1.45;
+}
+
+li > p { margin: 0 0 1.5mm 0; text-align: left; }
+
+/* Horizontal rule — single thin black line, structural */
+hr {
+  border: none;
+  border-top: 1px solid #000;
+  margin: 8mm 0;
+  height: 0;
+}
+
+/* Diagrams — left-aligned to grid, not centered */
+p.diagram {
+  text-align: left;
+  margin: 6mm 0;
+  page-break-inside: avoid;
+}
+
+p.diagram img {
+  max-width: 100%;
+  max-height: 220mm;
+  height: auto;
+  border: none;
+  padding: 0;
+}
+
+/* Inline emphasis */
+strong { font-weight: 700; color: #000; }
+em { font-style: italic; }
+
+a {
+  color: #a85a2a;
+  text-decoration: none;
+  border-bottom: 1px solid #a85a2a;
+}
+
+/* Definition lists / footnotes */
+dl { margin: 4mm 0; }
+dt { font-weight: 700; color: #000; margin-top: 3mm; }
+dd { margin: 1mm 0 0 6mm; color: #000; }
+
+/* Avoid orphaned headings */
+h1, h2, h3, h4 { break-after: avoid-page; }
+table, pre, blockquote, p.diagram { break-inside: avoid; }
