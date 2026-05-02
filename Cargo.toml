@@ -14,3 +14,11 @@ lto = true
 codegen-units = 1
 strip = true
 panic = "abort"
+
+[lib]
+name = "md4x"
+path = "src/lib.rs"
+
+[[bin]]
+name = "md4x"
+path = "src/main.rs"
