@@ -81,3 +81,11 @@ Convert a Markdown file to PDF, PPTX, or MP4. Rust, desktop-only. Optimize for s
 **Portable CLI principle.** Single binary, copy-to-bin install, no registry / installer / app bundle. md4x writes only to user-specified outputs (and a scratch dir adjacent to the output, deleted on success). No global config files, no system state.
 
 **Testing discipline.** Every behavioral claim — text layout, graph rendering, classification thresholds, page count — gets a test that mechanically verifies it. Visual outputs require either snapshot / perceptual-diff tests or measurable constraints (text size ≥ X, classification class == Y, page count == N). "Looks good" reviews never substitute for assertions.
+
+**SDD / TDD discipline (religious).** Development order is non-negotiable: **spec → tests → code**.
+
+1. **Spec first.** No feature begins without a written spec section describing desired behavior, constraints, and success criteria. The spec is the source of truth for *what* to build.
+2. **Tests next, derived from the spec.** Every spec claim gets a test that mechanically verifies it. Tests are written *before* the code that satisfies them. Test coverage broadly maps to spec coverage.
+3. **Code last, written to pass tests.** Implementation pursues clean architecture under the constraint that tests pass. Refactor freely; the test set is the contract.
+
+Operational order: spec section → failing tests for that section → minimum code to pass → refactor → next spec section. Implementation plans must be structured around this order.
