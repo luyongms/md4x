@@ -39,6 +39,26 @@ impl Registry {
     }
 }
 
+impl Registry {
+    pub fn transform_with_diagnostics(
+        &self,
+        kind: ContentKind,
+        source: &str,
+        diagnostics: &mut Vec<String>,
+    ) -> Option<String> {
+        match self.plugins.get(&kind).and_then(|v| v.first()) {
+            None => Some(format!("<!-- md4x: no plugin registered for {kind:?} -->")),
+            Some(p) => match p.transform(source) {
+                Ok(html) => Some(html),
+                Err(e) => {
+                    diagnostics.push(format!("{kind:?} plugin error: {e}"));
+                    Some(format!("<div class=\"md4x-error\">[{kind:?}: error — see diagnostics]</div>"))
+                }
+            },
+        }
+    }
+}
+
 impl Default for Registry {
     fn default() -> Self { Self::new() }
 }

@@ -32,3 +32,26 @@ fn first_registered_plugin_wins_when_multiple_handle_same_kind() {
     let html = reg.transform(ContentKind::Mermaid, "x").unwrap();
     assert!(html.starts_with("[first:"), "got: {html}");
 }
+
+struct FailingPlugin;
+impl Plugin for FailingPlugin {
+    fn handles(&self) -> ContentKind { ContentKind::Mermaid }
+    fn transform(&self, _: &str) -> anyhow::Result<String> {
+        anyhow::bail!("simulated plugin failure")
+    }
+}
+
+#[test]
+fn plugin_error_is_captured_in_diagnostic_not_propagated_as_crash() {
+    let mut reg = Registry::new();
+    reg.register(FailingPlugin);
+
+    let mut diagnostics = Vec::new();
+    let html = reg.transform_with_diagnostics(ContentKind::Mermaid, "input", &mut diagnostics);
+
+    assert!(html.is_some(), "transform_with_diagnostics returned None");
+    let html = html.unwrap();
+    assert!(html.contains("error"), "expected error placeholder: {html}");
+    assert_eq!(diagnostics.len(), 1, "expected one diagnostic");
+    assert!(diagnostics[0].contains("simulated plugin failure"));
+}
