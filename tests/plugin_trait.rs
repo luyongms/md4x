@@ -23,3 +23,12 @@ fn registry_dispatches_to_plugin_by_kind() {
     assert_eq!(reg.transform(ContentKind::Math, "x = 1").unwrap(),
                "[K: x = 1]");
 }
+
+#[test]
+fn first_registered_plugin_wins_when_multiple_handle_same_kind() {
+    let mut reg = Registry::new();
+    reg.register(EchoPlugin { kind: ContentKind::Mermaid, label: "first" });
+    reg.register(EchoPlugin { kind: ContentKind::Mermaid, label: "second" });
+    let html = reg.transform(ContentKind::Mermaid, "x").unwrap();
+    assert!(html.starts_with("[first:"), "got: {html}");
+}
