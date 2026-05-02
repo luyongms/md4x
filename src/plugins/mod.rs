@@ -1,6 +1,8 @@
 use anyhow::Result;
 use std::collections::HashMap;
 
+pub mod parser;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ContentKind {
     Markdown,
