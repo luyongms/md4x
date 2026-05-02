@@ -82,6 +82,8 @@ Convert a Markdown file to PDF, PPTX, or MP4. Rust, desktop-only. Optimize for s
 
 **Testing discipline.** Every behavioral claim — text layout, graph rendering, classification thresholds, page count — gets a test that mechanically verifies it. Visual outputs require either snapshot / perceptual-diff tests or measurable constraints (text size ≥ X, classification class == Y, page count == N). "Looks good" reviews never substitute for assertions.
 
+**Dogfood our own output.** Plan, design, and issue markdown files under `docs/` are auto-converted to PDF on every Write/Edit via a project-level Claude Code hook (`.claude/settings.json` → `scripts/md-to-pdf-hook.sh`). The user reads the rendered PDFs alongside the markdown source. Auto-generated PDFs under `docs/` are gitignored (`docs/**/*.pdf`); template preview PDFs at `templates/<name>/preview.pdf` are committed as test baselines. As md4x evolves, the hook will swap from `scripts/md-to-pdf.sh` (bash) to the md4x binary itself.
+
 **SDD / TDD discipline (religious).** Development order is non-negotiable: **spec → tests → code**.
 
 1. **Spec first.** No feature begins without a written spec section describing desired behavior, constraints, and success criteria. The spec is the source of truth for *what* to build.

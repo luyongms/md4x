@@ -1,6 +1,6 @@
 # md4x — backlog
 
-Things we explicitly chose to defer past v0.1.1. Bring forward in the order listed.
+Items deferred past v0.1.1, listed in roughly the order we'll bring them forward.
 
 ## v0.1.x (immediately after v0.1.1)
 

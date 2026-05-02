@@ -1,2 +1,7 @@
 /target
 .DS_Store
+
+# Auto-generated PDFs from the dogfooding hook (docs only).
+# Template preview PDFs under templates/<name>/preview.pdf are
+# committed as test baselines and explicitly NOT ignored.
+docs/**/*.pdf
