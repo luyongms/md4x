@@ -2,13 +2,14 @@
 //! import plugin modules by name — it holds a [`Registry`] and calls trait
 //! methods. See `docs/spec/plugin-architecture.md`.
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{bail, Context, Result};
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use crate::plugins::{html_escape, Registry};
+use crate::templates;
 
 pub struct CoverValues {
     pub title: String,
@@ -16,12 +17,6 @@ pub struct CoverValues {
     pub eyebrow: String,
     pub author: String,
     pub date: String,
-}
-
-#[derive(Debug)]
-pub struct Assets {
-    pub templates_dir: PathBuf,
-    pub cover_html: PathBuf,
 }
 
 pub fn extract_cover_values(md: &str, stem: &str) -> CoverValues {
@@ -126,46 +121,9 @@ pub fn markdown_to_html_with(md: &str, registry: &Registry) -> String {
     String::from_utf8(buf).expect("utf8")
 }
 
-pub fn find_assets(bin_dir: &Path) -> Result<Assets> {
-    let templates_dir = bin_dir.join("templates");
-    let cover_html = templates_dir.join("cover.html");
-
-    if !templates_dir.is_dir() {
-        bail!(
-            "missing assets: templates/ not found at {}",
-            templates_dir.display()
-        );
-    }
-    if !cover_html.is_file() {
-        bail!(
-            "missing assets: cover.html not found at {}",
-            cover_html.display()
-        );
-    }
-    Ok(Assets {
-        templates_dir,
-        cover_html,
-    })
-}
-
-pub fn assets_from_exe() -> Result<Assets> {
-    let exe = env::current_exe().context("locating current executable")?;
-    let dir = exe
-        .parent()
-        .ok_or_else(|| anyhow!("current_exe has no parent: {}", exe.display()))?;
-    find_assets(dir)
-}
-
 pub fn render_pdf(input: &Path, output: &Path, template: &str) -> Result<()> {
-    let assets = assets_from_exe()?;
-    let style_css = assets.templates_dir.join(template).join("style.css");
-    if !style_css.is_file() {
-        bail!(
-            "template '{}' not found: {} missing",
-            template,
-            style_css.display()
-        );
-    }
+    let style_css = templates::style_css(template)?;
+    let cover_template = templates::cover_html()?;
 
     let registry = Registry::default();
 
@@ -176,8 +134,6 @@ pub fn render_pdf(input: &Path, output: &Path, template: &str) -> Result<()> {
         .and_then(|s| s.to_str())
         .unwrap_or("document");
 
-    let cover_template = fs::read_to_string(&assets.cover_html)
-        .with_context(|| format!("reading {}", assets.cover_html.display()))?;
     let cover_values = extract_cover_values(&md, stem);
     let cover_html = substitute_cover_with(&cover_template, &cover_values, &registry);
     let body_html = markdown_to_html_with(&md, &registry);
@@ -187,8 +143,8 @@ pub fn render_pdf(input: &Path, output: &Path, template: &str) -> Result<()> {
         .with_context(|| format!("creating scratch dir {}", scratch.display()))?;
     let keep_scratch = env::var("KEEP_WORK").as_deref() == Ok("1");
 
-    fs::copy(&style_css, scratch.join("style.css"))
-        .with_context(|| format!("copying {}", style_css.display()))?;
+    fs::write(scratch.join("style.css"), style_css.as_bytes())
+        .with_context(|| format!("writing style.css to {}", scratch.display()))?;
     registry.extract_assets(&scratch)?;
 
     let html_doc = format!(

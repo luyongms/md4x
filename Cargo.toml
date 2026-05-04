@@ -4,6 +4,13 @@ version = "0.1.2"
 edition = "2024"
 description = "Convert a Markdown file to a magazine-quality PDF."
 
+[features]
+# Default: templates stay on disk next to the binary (fast dev rebuilds).
+default = []
+# `cargo build --features bundle-templates` embeds templates/ into the binary
+# for self-contained dist tarballs. Used by scripts/dist.sh, never by `cargo build`.
+bundle-templates = []
+
 [dependencies]
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }

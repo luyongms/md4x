@@ -137,22 +137,20 @@ fn markdown_to_html_applies_syntax_highlighting() {
 }
 
 #[test]
-fn find_assets_reports_missing_paths_helpfully() {
-    let tmp = tempdir();
-    let err = render::find_assets(&tmp).unwrap_err().to_string();
+fn style_css_reports_unknown_template_helpfully() {
+    let err = md4x::templates::style_css("definitely-not-a-template")
+        .unwrap_err()
+        .to_string();
     assert!(
-        err.contains("templates") || err.contains("mermaid.min.js"),
-        "missing-asset error should name what's missing: {err}"
+        err.contains("definitely-not-a-template") || err.contains("template"),
+        "missing-template error should name the template: {err}"
     );
 }
 
-fn tempdir() -> std::path::PathBuf {
-    let mut p = std::env::temp_dir();
-    let n: u64 = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos() as u64;
-    p.push(format!("md4x-test-{n}"));
-    std::fs::create_dir_all(&p).unwrap();
-    p
+#[test]
+fn available_templates_includes_the_three_we_ship() {
+    let names = md4x::templates::available();
+    assert!(names.contains(&"magazine"));
+    assert!(names.contains(&"swiss"));
+    assert!(names.contains(&"stem"));
 }

@@ -5,3 +5,4 @@
 # Template preview PDFs under templates/<name>/preview.pdf are
 # committed as test baselines and explicitly NOT ignored.
 docs/**/*.pdf
+dist/
