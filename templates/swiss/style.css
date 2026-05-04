@@ -52,6 +52,8 @@ body {
 }
 
 /* Cover ---------------------------------------------------------------- */
+/* Swiss uses cover-block-right; hide the stem-only author line */
+.cover-author { display: none; }
 .cover-page {
   position: relative;
   width: calc(100% + 44mm);
@@ -299,6 +301,18 @@ hr {
   margin: 8mm 0;
   height: 0;
 }
+
+/* Mermaid diagrams render in-place via mermaid.js + Chrome */
+pre.mermaid {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 6mm 0;
+  text-align: left;
+  page-break-inside: avoid;
+  overflow: visible;
+}
+pre.mermaid svg { max-width: 100%; height: auto; }
 
 /* Diagrams — left-aligned to grid, not centered */
 p.diagram {

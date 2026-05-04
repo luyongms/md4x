@@ -60,6 +60,8 @@ body {
 }
 
 /* Cover ---------------------------------------------------------------- */
+/* Stem uses cover-author; hide the swiss-only structural color block */
+.cover-block-right { display: none; }
 .cover-page {
   position: relative;
   width: calc(100% + 44mm);
@@ -326,6 +328,18 @@ hr {
   margin: 8mm 0;
   height: 0;
 }
+
+/* Mermaid diagrams render in-place via mermaid.js + Chrome */
+pre.mermaid {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 6mm 0;
+  text-align: center;
+  page-break-inside: avoid;
+  overflow: visible;
+}
+pre.mermaid svg { max-width: 100%; height: auto; }
 
 /* Diagrams — centered, captioned */
 p.diagram {
