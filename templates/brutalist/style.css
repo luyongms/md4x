@@ -68,87 +68,81 @@ body {
   background: #fff;
   overflow: hidden;
 }
-/* Massive red block, asymmetrically placed */
+/* Red block — top-right corner, deliberately smaller so titles don't crash. */
 .cover-block-right {
   display: block;
   position: absolute;
   top: 0;
   right: 0;
-  width: 90mm;
-  height: 130mm;
+  width: 60mm;
+  height: 90mm;
   background: #d61a1a;
 }
-/* A black rule across the page */
+/* A heavy black rule across the lower third of the cover. Sits *above* the
+   meta line, never collides with the subtitle. */
 .cover-page::after {
   content: "";
   position: absolute;
   left: 0;
   right: 0;
-  bottom: 70mm;
-  height: 4mm;
+  bottom: 36mm;
+  height: 3mm;
   background: #000;
-}
-/* Massive page number / version stamped at bottom */
-.cover-page::before {
-  content: "01";
-  position: absolute;
-  left: 22mm;
-  bottom: 12mm;
-  font-family: "Helvetica Neue", "Inter", sans-serif;
-  font-size: 56pt;
-  font-weight: 900;
-  color: #d61a1a;
-  letter-spacing: -0.04em;
-  line-height: 1;
 }
 .cover-content {
   position: absolute;
-  top: 28mm;
+  /* Title block lives under the red block: starts well below it so the
+     title never crashes into the corner color field, no matter how long. */
+  top: 100mm;
   left: 22mm;
-  right: 18mm;
-  bottom: 90mm;
+  right: 22mm;
+  bottom: 50mm;
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
 }
 .cover-eyebrow {
   font-family: "Helvetica Neue", "Inter", Helvetica, sans-serif;
-  font-size: 9pt;
+  font-size: 10pt;
   font-weight: 900;
   text-transform: uppercase;
-  letter-spacing: 0.18em;
+  letter-spacing: 0.22em;
   color: #d61a1a;
-  margin: 0;
+  margin: 0 0 6mm 0;
 }
 .cover-title {
   font-family: "Helvetica Neue", "Inter", Helvetica, Arial, sans-serif;
-  font-size: 86pt;
-  line-height: 0.92;
+  /* 60pt fits 2-3 lines of long titles cleanly inside the page width
+     (page is 210mm; content area ~166mm; 60pt headline at this weight
+     averages ~9-11 chars per line). */
+  font-size: 60pt;
+  line-height: 0.95;
   font-weight: 900;
-  letter-spacing: -0.045em;
+  letter-spacing: -0.04em;
   color: #000;
-  margin: 12mm 0 0 0;
-  max-width: 130mm;
+  margin: 0;
+  max-width: 100%;
   text-transform: uppercase;
+  /* If a single word is wider than the column, break it before overflow. */
+  overflow-wrap: break-word;
 }
 .cover-subtitle {
   font-family: "Helvetica Neue", "Inter", Helvetica, sans-serif;
-  font-size: 14pt;
+  font-size: 13pt;
   font-weight: 400;
-  line-height: 1.25;
+  line-height: 1.3;
   color: #000;
-  max-width: 100mm;
-  margin: 14mm 0 0 0;
+  max-width: 130mm;
+  margin: 8mm 0 0 0;
 }
 .cover-rule { display: none; }   /* Red block + black bar carry the structure */
 .cover-meta {
   font-family: "Helvetica Neue", "Inter", Helvetica, sans-serif;
   font-size: 9pt;
   font-weight: 700;
-  letter-spacing: 0.18em;
+  letter-spacing: 0.22em;
   text-transform: uppercase;
   color: #000;
-  margin: 0;
+  margin-top: auto;       /* Pin to the bottom of the content area */
 }
 .cover-meta strong { color: #d61a1a; font-weight: 900; }
 
