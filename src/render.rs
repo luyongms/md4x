@@ -1,15 +1,14 @@
+//! Kernel: orchestrates the markdown-to-PDF pipeline. The kernel does not
+//! import plugin modules by name — it holds a [`Registry`] and calls trait
+//! methods. See `docs/spec/plugin-architecture.md`.
+
 use anyhow::{anyhow, bail, Context, Result};
-use include_dir::{include_dir, Dir};
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-/// mermaid.js is embedded — never tweaked, no reason to ship it on disk.
-static MERMAID_JS: &[u8] = include_bytes!("../mermaid.min.js");
-
-/// KaTeX (CSS, JS, fonts, contrib/auto-render.min.js) is embedded for the same reason.
-static KATEX_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/katex");
+use crate::plugins::{html_escape, Registry};
 
 pub struct CoverValues {
     pub title: String,
@@ -29,7 +28,10 @@ pub fn extract_cover_values(md: &str, stem: &str) -> CoverValues {
     let title = first_h1(md).unwrap_or_else(|| stem.to_string());
     let subtitle = first_body_line(md).unwrap_or_default();
     let eyebrow = stem.replace('-', " ").to_uppercase();
-    let date = chrono::Local::now().format("%B %Y").to_string().to_uppercase();
+    let date = chrono::Local::now()
+        .format("%B %Y")
+        .to_string()
+        .to_uppercase();
     CoverValues {
         title,
         subtitle,
@@ -77,65 +79,28 @@ fn strip_label_and_bold(s: &str) -> String {
     out.replace("**", "")
 }
 
-pub fn substitute_cover(template: &str, cv: &CoverValues) -> String {
-    // Title and subtitle commonly contain inline math like `$\mathbb{R}$`; the rest are plain.
+/// Substitute cover values into the cover.html template, using `registry` to
+/// rewrite text fields (KaTeX claims `$...$` in title/subtitle).
+pub fn substitute_cover_with(template: &str, cv: &CoverValues, registry: &Registry) -> String {
     template
-        .replace("{{title}}", &render_inline_math(&cv.title))
-        .replace("{{subtitle}}", &render_inline_math(&cv.subtitle))
+        .replace("{{title}}", &registry.rewrite_cover_text(&cv.title))
+        .replace("{{subtitle}}", &registry.rewrite_cover_text(&cv.subtitle))
         .replace("{{eyebrow}}", &html_escape(&cv.eyebrow))
         .replace("{{author}}", &html_escape(&cv.author))
         .replace("{{date}}", &html_escape(&cv.date))
 }
 
-/// HTML-escape `s`, except convert `$...$` regions into `<span data-math-style="inline">` so
-/// the cover-page picks up KaTeX rendering. Unmatched `$` is treated as a literal dollar.
-fn render_inline_math(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    let mut buf = String::new();
-    let mut in_math = false;
-    for c in s.chars() {
-        if c == '$' {
-            if in_math {
-                out.push_str("<span data-math-style=\"inline\">");
-                out.push_str(&html_escape(&buf));
-                out.push_str("</span>");
-                buf.clear();
-                in_math = false;
-            } else {
-                out.push_str(&html_escape(&buf));
-                buf.clear();
-                in_math = true;
-            }
-        } else {
-            buf.push(c);
-        }
-    }
-    if in_math {
-        out.push('$');
-        out.push_str(&html_escape(&buf));
-    } else {
-        out.push_str(&html_escape(&buf));
-    }
-    out
+/// Convenience wrapper using the default registry. Used by integration tests.
+pub fn substitute_cover(template: &str, cv: &CoverValues) -> String {
+    substitute_cover_with(template, cv, &Registry::default())
 }
 
-fn html_escape(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for c in s.chars() {
-        match c {
-            '&' => out.push_str("&amp;"),
-            '<' => out.push_str("&lt;"),
-            '>' => out.push_str("&gt;"),
-            '"' => out.push_str("&quot;"),
-            '\'' => out.push_str("&#39;"),
-            _ => out.push(c),
-        }
-    }
-    out
-}
-
+/// Render markdown to HTML using the default registry.
 pub fn markdown_to_html(md: &str) -> String {
-    use comrak::nodes::{AstNode, NodeValue};
+    markdown_to_html_with(md, &Registry::default())
+}
+
+pub fn markdown_to_html_with(md: &str, registry: &Registry) -> String {
     use comrak::{parse_document, Arena, ComrakOptions};
 
     let mut options = ComrakOptions::default();
@@ -145,46 +110,19 @@ pub fn markdown_to_html(md: &str) -> String {
     options.extension.tasklist = true;
     options.extension.autolink = true;
     options.extension.superscript = true;
-    options.extension.math_dollars = true;
     options.render.unsafe_ = true;
+    registry.configure_parse(&mut options);
 
     let arena = Arena::new();
     let root = parse_document(&arena, md, &options);
+    registry.rewrite_ast(root);
 
-    fn walk<'a>(node: &'a AstNode<'a>) {
-        for child in node.children() {
-            let mut data = child.data.borrow_mut();
-            let mermaid_src = match &data.value {
-                NodeValue::CodeBlock(cb) if cb.info.trim().eq_ignore_ascii_case("mermaid") => {
-                    Some(cb.literal.clone())
-                }
-                _ => None,
-            };
-            if let Some(src) = mermaid_src {
-                let html = format!("<pre class=\"mermaid\">{}</pre>", html_escape(&src));
-                data.value = NodeValue::HtmlBlock(comrak::nodes::NodeHtmlBlock {
-                    block_type: 0,
-                    literal: html,
-                });
-                continue;
-            }
-            drop(data);
-            walk(child);
-        }
-    }
-    walk(root);
-
-    // Server-side syntax highlighting via syntect, using `two-face`'s extended bundle
-    // (covers TypeScript, Elixir, Kotlin, etc. — beyond syntect's default ~70 languages).
-    let adapter = comrak::plugins::syntect::SyntectAdapterBuilder::new()
-        .syntax_set(two_face::syntax::extra_newlines())
-        .theme("InspiredGitHub")
-        .build();
-    let mut plugins = comrak::Plugins::default();
-    plugins.render.codefence_syntax_highlighter = Some(&adapter);
+    let mut comrak_plugins = comrak::Plugins::default();
+    comrak_plugins.render.codefence_syntax_highlighter = registry.syntax_highlighter();
 
     let mut buf = Vec::new();
-    comrak::format_html_with_plugins(root, &options, &mut buf, &plugins).expect("format_html");
+    comrak::format_html_with_plugins(root, &options, &mut buf, &comrak_plugins)
+        .expect("format_html");
     String::from_utf8(buf).expect("utf8")
 }
 
@@ -193,12 +131,21 @@ pub fn find_assets(bin_dir: &Path) -> Result<Assets> {
     let cover_html = templates_dir.join("cover.html");
 
     if !templates_dir.is_dir() {
-        bail!("missing assets: templates/ not found at {}", templates_dir.display());
+        bail!(
+            "missing assets: templates/ not found at {}",
+            templates_dir.display()
+        );
     }
     if !cover_html.is_file() {
-        bail!("missing assets: cover.html not found at {}", cover_html.display());
+        bail!(
+            "missing assets: cover.html not found at {}",
+            cover_html.display()
+        );
     }
-    Ok(Assets { templates_dir, cover_html })
+    Ok(Assets {
+        templates_dir,
+        cover_html,
+    })
 }
 
 pub fn assets_from_exe() -> Result<Assets> {
@@ -220,6 +167,8 @@ pub fn render_pdf(input: &Path, output: &Path, template: &str) -> Result<()> {
         );
     }
 
+    let registry = Registry::default();
+
     let md = fs::read_to_string(input)
         .with_context(|| format!("reading input {}", input.display()))?;
     let stem = input
@@ -230,8 +179,8 @@ pub fn render_pdf(input: &Path, output: &Path, template: &str) -> Result<()> {
     let cover_template = fs::read_to_string(&assets.cover_html)
         .with_context(|| format!("reading {}", assets.cover_html.display()))?;
     let cover_values = extract_cover_values(&md, stem);
-    let cover_html = substitute_cover(&cover_template, &cover_values);
-    let body_html = markdown_to_html(&md);
+    let cover_html = substitute_cover_with(&cover_template, &cover_values, &registry);
+    let body_html = markdown_to_html_with(&md, &registry);
 
     let scratch = scratch_dir(output);
     fs::create_dir_all(&scratch)
@@ -240,24 +189,19 @@ pub fn render_pdf(input: &Path, output: &Path, template: &str) -> Result<()> {
 
     fs::copy(&style_css, scratch.join("style.css"))
         .with_context(|| format!("copying {}", style_css.display()))?;
-    fs::write(scratch.join("mermaid.min.js"), MERMAID_JS)
-        .with_context(|| format!("writing mermaid.min.js to {}", scratch.display()))?;
-    extract_embedded_dir(&KATEX_DIR, &scratch.join("katex"))
-        .with_context(|| format!("extracting embedded katex/ to {}", scratch.display()))?;
+    registry.extract_assets(&scratch)?;
 
     let html_doc = format!(
         "<!DOCTYPE html>\n<html><head>\n\
          <meta charset=\"utf-8\">\n\
          <title>{title}</title>\n\
-         <link rel=\"stylesheet\" href=\"katex/katex.min.css\">\n\
          <link rel=\"stylesheet\" href=\"style.css\">\n\
-         <script src=\"katex/katex.min.js\"></script>\n\
-         <script src=\"mermaid.min.js\"></script>\n\
-         <script>mermaid.initialize({{startOnLoad:true}});</script>\n\
-         <script>{katex_init}</script>\n\
+         {head}\
+         <script>document.addEventListener('DOMContentLoaded',function(){{\n{init}}});</script>\n\
          </head><body>\n{cover}\n{body}\n</body></html>\n",
         title = html_escape(&cover_values.title),
-        katex_init = KATEX_INIT_JS,
+        head = registry.head_html(),
+        init = registry.init_js(),
         cover = cover_html,
         body = body_html,
     );
@@ -275,8 +219,6 @@ pub fn render_pdf(input: &Path, output: &Path, template: &str) -> Result<()> {
         ])
         .arg(format!("--print-to-pdf={}", output.display()))
         .arg(format!("file://{}", html_path.display()))
-        // Chrome headless emits benign macOS warnings (TASK_CATEGORY_POLICY etc.) on stderr.
-        // Discard both streams; if Chrome fails, we report the exit code with the scratch path.
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status()
@@ -303,40 +245,11 @@ pub fn render_pdf(input: &Path, output: &Path, template: &str) -> Result<()> {
     Ok(())
 }
 
-/// Render math nodes (emitted by comrak's math_dollars extension) with KaTeX.
-/// Runs at DOMContentLoaded so it completes within Chrome's --virtual-time-budget.
-const KATEX_INIT_JS: &str = "\
-document.addEventListener('DOMContentLoaded', function() {\
-  document.querySelectorAll('span[data-math-style=\"inline\"]').forEach(function(el){\
-    try { katex.render(el.textContent, el, {throwOnError:false, displayMode:false}); } catch(e){}\
-  });\
-  document.querySelectorAll('span[data-math-style=\"display\"]').forEach(function(el){\
-    try { katex.render(el.textContent, el, {throwOnError:false, displayMode:true}); } catch(e){}\
-  });\
-});";
-
-fn extract_embedded_dir(dir: &Dir<'_>, dst: &Path) -> Result<()> {
-    fs::create_dir_all(dst)
-        .with_context(|| format!("creating {}", dst.display()))?;
-    for entry in dir.entries() {
-        let name = entry
-            .path()
-            .file_name()
-            .ok_or_else(|| anyhow!("embedded entry has no file name"))?;
-        let to = dst.join(name);
-        match entry {
-            include_dir::DirEntry::File(f) => {
-                fs::write(&to, f.contents())
-                    .with_context(|| format!("writing {}", to.display()))?;
-            }
-            include_dir::DirEntry::Dir(d) => extract_embedded_dir(d, &to)?,
-        }
-    }
-    Ok(())
-}
-
 fn scratch_dir(output: &Path) -> PathBuf {
-    let mut name = output.file_name().map(|s| s.to_os_string()).unwrap_or_default();
+    let mut name = output
+        .file_name()
+        .map(|s| s.to_os_string())
+        .unwrap_or_default();
     name.push(".work");
     output.with_file_name(name)
 }
