@@ -38,8 +38,8 @@ fn extract_subtitle_skips_headings_and_thematic_breaks() {
 #[test]
 fn extract_eyebrow_uppercases_and_dashes_to_spaces() {
     let md = "# Title\n";
-    let cv = render::extract_cover_values(md, "v0.1.2-release-notes");
-    assert_eq!(cv.eyebrow, "V0.1.2 RELEASE NOTES");
+    let cv = render::extract_cover_values(md, "v0.1.1-release-notes");
+    assert_eq!(cv.eyebrow, "V0.1.1 RELEASE NOTES");
 }
 
 #[test]

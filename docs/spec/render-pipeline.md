@@ -1,4 +1,4 @@
-# md4x render pipeline (v0.1.2)
+# md4x render pipeline (v0.1.1)
 
 ## Goal
 
@@ -10,7 +10,7 @@ npx, no pandoc, no mmdc. Output is a self-contained PDF.
 
     md4x [--to pdf] [--template <name>] [-o OUTPUT] <INPUT.md>
 
-- `--to` — optional; defaults to `pdf`. Only `pdf` is accepted in v0.1.2.
+- `--to` — optional; defaults to `pdf`. Only `pdf` is accepted in v0.1.1.
 - `--template` — optional; defaults to `magazine`. Valid values:
   `magazine`, `swiss`, `stem`. An unknown name is a hard error.
 - `-o`, `--output` — optional; defaults to `<INPUT stem>.pdf` next to the
@@ -48,7 +48,7 @@ missing path.
      after the H1. Strip a leading `**Label:**` prefix and any remaining
      `**` markers.
    - `eyebrow` — input file stem, dashes → spaces, uppercased.
-   - `author` — empty in v0.1.2 (templates that do not show it hide it
+   - `author` — empty in v0.1.1 (templates that do not show it hide it
      via CSS).
    - `date` — current month and year, e.g. `MAY 2026`.
 3. **Render markdown to HTML** via comrak with GFM extensions
