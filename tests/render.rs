@@ -35,6 +35,48 @@ fn extract_subtitle_skips_headings_and_thematic_breaks() {
     assert_eq!(cv.subtitle, "Body line.");
 }
 
+// Bug D: when the first non-heading "block" is display math, the subtitle was
+// returning the literal `$$` marker. Fix walks the AST and skips math blocks.
+#[test]
+fn extract_subtitle_skips_display_math_blocks() {
+    let md = "# Title\n\n$$\nA = B\n$$\n\nReal subtitle here.\n";
+    let cv = render::extract_cover_values(md, "x");
+    assert_eq!(cv.subtitle, "Real subtitle here.");
+}
+
+// Bug I: same shape for fenced code blocks (mermaid included).
+#[test]
+fn extract_subtitle_skips_fenced_code_blocks() {
+    let md = "# Title\n\n```mermaid\ngraph TD;A-->B\n```\n\nReal subtitle here.\n";
+    let cv = render::extract_cover_values(md, "x");
+    assert_eq!(cv.subtitle, "Real subtitle here.");
+}
+
+#[test]
+fn extract_subtitle_skips_html_blocks() {
+    let md = "# Title\n\n<div class=\"x\">stuff</div>\n\nReal subtitle here.\n";
+    let cv = render::extract_cover_values(md, "x");
+    assert_eq!(cv.subtitle, "Real subtitle here.");
+}
+
+// Bug H: BOM at the start of the file should not hide the H1.
+#[test]
+fn extract_title_strips_bom() {
+    let md = "\u{FEFF}# Title After BOM\n\nbody\n";
+    let cv = render::extract_cover_values(md, "fallback-stem");
+    assert_eq!(cv.title, "Title After BOM");
+}
+
+// Bug E: only the leading bold-label `**Foo:**` should be stripped; later
+// `**bold**` markers in the subtitle stay intact (the cover-text plugin will
+// html-escape them so they render as `**bold**`, but they are not destroyed).
+#[test]
+fn extract_subtitle_strips_only_leading_label_keeps_other_bolds() {
+    let md = "# Title\n\n**Doc:** A demo. **Status:** ready.\n";
+    let cv = render::extract_cover_values(md, "x");
+    assert_eq!(cv.subtitle, "A demo. **Status:** ready.");
+}
+
 #[test]
 fn extract_eyebrow_uppercases_and_dashes_to_spaces() {
     let md = "# Title\n";

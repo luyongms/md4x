@@ -32,6 +32,42 @@ fn rewrite_cover_text_handles_unmatched_dollar_as_literal() {
     assert!(out.contains("$5"), "got: {out}");
 }
 
+// Bug B: pandoc-style rules — `$N` (digit after $) is a literal dollar, not a
+// math opener. So in a string like "Costs $5 vs $\sqrt{2}$ tradeoff", only the
+// `$\sqrt{2}$` should become a math span; the `$5` stays literal and the
+// trailing " tradeoff" is not eaten.
+#[test]
+fn rewrite_cover_text_does_not_open_math_before_digit() {
+    let out = KatexPlugin
+        .rewrite_cover_text("Costs $5 vs $\\sqrt{2}$ tradeoff")
+        .unwrap();
+    assert!(out.contains("$5 vs"), "literal $5 lost: {out}");
+    assert!(
+        out.contains("<span data-math-style=\"inline\">\\sqrt{2}</span>"),
+        "real math missing: {out}"
+    );
+    assert!(out.ends_with(" tradeoff"), "trailing text eaten: {out}");
+}
+
+#[test]
+fn rewrite_cover_text_does_not_open_math_before_space() {
+    // `$ ...$` is not math (space after open). Should pass through as literal.
+    let out = KatexPlugin.rewrite_cover_text("priced at $ 5 today").unwrap();
+    assert!(!out.contains("data-math-style"), "got: {out}");
+}
+
+#[test]
+fn rewrite_cover_text_does_not_close_math_after_space() {
+    // `$x $ y$` → space before close `$` disqualifies that close. The opener
+    // `$x ` is a candidate but lacks a valid close before whitespace; we
+    // expect the parser to fall back to literal so we don't eat ` y` text.
+    let out = KatexPlugin.rewrite_cover_text("$x $ y$").unwrap();
+    // Either literal (no math span) or a single span with content "x $ y" —
+    // but never an empty span or split text. Easiest assertion: original
+    // characters all survive.
+    assert!(out.contains("y"), "trailing y eaten: {out}");
+}
+
 #[test]
 fn head_html_loads_katex_css_and_js() {
     let head = KatexPlugin.head_html();

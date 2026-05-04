@@ -2,11 +2,13 @@
 //! import plugin modules by name — it holds a [`Registry`] and calls trait
 //! methods. See `docs/spec/plugin-architecture.md`.
 
-use anyhow::{bail, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
+use comrak::nodes::{AstNode, NodeValue};
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::plugins::{html_escape, Registry};
 use crate::templates;
@@ -19,9 +21,28 @@ pub struct CoverValues {
     pub date: String,
 }
 
+/// Strip a leading UTF-8 BOM (`U+FEFF`) if present. Files saved by some
+/// editors include one; downstream parsers (comrak, our own line-walking)
+/// would otherwise see it as content and produce wrong output.
+fn strip_bom(s: &str) -> &str {
+    s.strip_prefix('\u{FEFF}').unwrap_or(s)
+}
+
 pub fn extract_cover_values(md: &str, stem: &str) -> CoverValues {
-    let title = first_h1(md).unwrap_or_else(|| stem.to_string());
-    let subtitle = first_body_line(md).unwrap_or_default();
+    // Sanitize: BOM strip + run the same plugin preprocess as rendering, so
+    // multi-line $$ blocks don't trigger Setext H1 detection inside cover
+    // extraction.
+    let md = strip_bom(md);
+    let registry = Registry::default();
+    let md = registry.preprocess_markdown(md);
+
+    let arena = comrak::Arena::new();
+    let mut opts = comrak::ComrakOptions::default();
+    registry.configure_parse(&mut opts);
+    let root = comrak::parse_document(&arena, &md, &opts);
+
+    let title = first_h1_text(root).unwrap_or_else(|| stem.to_string());
+    let subtitle = first_prose_paragraph_text(root).unwrap_or_default();
     let eyebrow = stem.replace('-', " ").to_uppercase();
     let date = chrono::Local::now()
         .format("%B %Y")
@@ -36,42 +57,124 @@ pub fn extract_cover_values(md: &str, stem: &str) -> CoverValues {
     }
 }
 
-fn first_h1(md: &str) -> Option<String> {
-    for line in md.lines() {
-        let t = line.trim_start();
-        if let Some(rest) = t.strip_prefix("# ") {
-            return Some(rest.trim().to_string());
-        }
-    }
-    None
-}
-
-fn first_body_line(md: &str) -> Option<String> {
-    let mut seen_h1 = false;
-    for line in md.lines() {
-        let t = line.trim();
-        if !seen_h1 {
-            if t.starts_with("# ") {
-                seen_h1 = true;
+/// First H1 in the AST, as plain text. AST-based so a BOM-stripped, properly
+/// parsed `# Title` is found regardless of where it sits relative to other
+/// content.
+fn first_h1_text<'a>(root: &'a AstNode<'a>) -> Option<String> {
+    for child in root.children() {
+        let data = child.data.borrow();
+        if let NodeValue::Heading(ref h) = data.value {
+            if h.level == 1 {
+                drop(data);
+                let mut text = String::new();
+                walk_inline_plain(child, &mut text);
+                let t = text.trim().to_string();
+                if !t.is_empty() {
+                    return Some(t);
+                }
             }
-            continue;
         }
-        if t.is_empty() || t.starts_with('#') || t.starts_with("---") {
-            continue;
-        }
-        return Some(strip_label_and_bold(t));
     }
     None
 }
 
-fn strip_label_and_bold(s: &str) -> String {
-    let mut out = s.to_string();
-    if out.starts_with("**") {
-        if let Some(end) = out[2..].find(":**") {
-            out = out[2 + end + 3..].trim_start().to_string();
+/// First paragraph that contains real prose (Text / Strong / Emph / Link /
+/// Image). Paragraphs whose only inline content is math, code, or raw HTML
+/// are skipped — they aren't suitable as a cover subtitle. Returns the
+/// paragraph text with `**bold**` / `*emph*` / `` `code` `` markers
+/// preserved (so the user's intent is visible), then strips a leading
+/// `**Label:** ` if present.
+fn first_prose_paragraph_text<'a>(root: &'a AstNode<'a>) -> Option<String> {
+    for child in root.children() {
+        let data = child.data.borrow();
+        let is_paragraph = matches!(data.value, NodeValue::Paragraph);
+        drop(data);
+        if !is_paragraph || !is_prose_paragraph(child) {
+            continue;
+        }
+        let raw = inline_text_with_markers(child);
+        let stripped = strip_leading_label(&raw);
+        let s = stripped.trim();
+        if !s.is_empty() {
+            return Some(s.to_string());
         }
     }
-    out.replace("**", "")
+    None
+}
+
+fn is_prose_paragraph<'a>(para: &'a AstNode<'a>) -> bool {
+    for inline in para.children() {
+        let data = inline.data.borrow();
+        match &data.value {
+            NodeValue::Math(_) | NodeValue::Code(_) | NodeValue::HtmlInline(_) => continue,
+            _ => return true,
+        }
+    }
+    false
+}
+
+fn walk_inline_plain<'a>(node: &'a AstNode<'a>, out: &mut String) {
+    for child in node.children() {
+        let data = child.data.borrow();
+        match &data.value {
+            NodeValue::Text(s) => out.push_str(s),
+            NodeValue::Code(c) => out.push_str(&c.literal),
+            NodeValue::SoftBreak | NodeValue::LineBreak => out.push(' '),
+            _ => {
+                drop(data);
+                walk_inline_plain(child, out);
+            }
+        }
+    }
+}
+
+fn inline_text_with_markers<'a>(node: &'a AstNode<'a>) -> String {
+    let mut out = String::new();
+    emit_inline_with_markers(node, &mut out);
+    out
+}
+
+fn emit_inline_with_markers<'a>(node: &'a AstNode<'a>, out: &mut String) {
+    for child in node.children() {
+        let data = child.data.borrow();
+        match &data.value {
+            NodeValue::Text(s) => out.push_str(s),
+            NodeValue::SoftBreak | NodeValue::LineBreak => out.push(' '),
+            NodeValue::Strong => {
+                out.push_str("**");
+                drop(data);
+                emit_inline_with_markers(child, out);
+                out.push_str("**");
+            }
+            NodeValue::Emph => {
+                out.push('*');
+                drop(data);
+                emit_inline_with_markers(child, out);
+                out.push('*');
+            }
+            NodeValue::Code(c) => {
+                out.push('`');
+                out.push_str(&c.literal);
+                out.push('`');
+            }
+            _ => {
+                drop(data);
+                emit_inline_with_markers(child, out);
+            }
+        }
+    }
+}
+
+/// Strip a leading `**Label:** ` from a paragraph text, preserving any
+/// further `**bold**` markers in the rest of the line. Replaces the old
+/// `out.replace("**", "")` sledgehammer that destroyed all bolds.
+fn strip_leading_label(s: &str) -> String {
+    if let Some(rest) = s.strip_prefix("**") {
+        if let Some(end) = rest.find(":**") {
+            return rest[end + 3..].trim_start().to_string();
+        }
+    }
+    s.to_string()
 }
 
 /// Substitute cover values into the cover.html template, using `registry` to
@@ -127,8 +230,11 @@ pub fn render_pdf(input: &Path, output: &Path, template: &str) -> Result<()> {
     let style_css = templates::style_css(template)?;
     let cover_template = templates::cover_html()?;
 
-    let md = fs::read_to_string(input)
+    let raw = fs::read_to_string(input)
         .with_context(|| format!("reading input {}", input.display()))?;
+    // Strip a UTF-8 BOM if the file came from an editor that adds one;
+    // otherwise downstream parsers see U+FEFF as content.
+    let md = strip_bom(&raw).to_string();
     let stem = input
         .file_stem()
         .and_then(|s| s.to_str())
@@ -152,7 +258,7 @@ pub fn render_pdf(input: &Path, output: &Path, template: &str) -> Result<()> {
     let scratch = scratch
         .canonicalize()
         .with_context(|| format!("canonicalizing scratch dir {}", scratch.display()))?;
-    let keep_scratch = env::var("KEEP_WORK").as_deref() == Ok("1");
+    let keep_scratch = env::var("KEEP_WORK").map(|v| is_truthy(&v)).unwrap_or(false);
 
     fs::write(scratch.join("style.css"), style_css.as_bytes())
         .with_context(|| format!("writing style.css to {}", scratch.display()))?;
@@ -176,15 +282,18 @@ pub fn render_pdf(input: &Path, output: &Path, template: &str) -> Result<()> {
     fs::write(&html_path, html_doc.as_bytes())
         .with_context(|| format!("writing {}", html_path.display()))?;
 
+    // Build the file:// URL via `url::Url::from_file_path`, which percent-
+    // encodes path bytes per RFC 3986. Naively concatenating the path into a
+    // file:// URL string fails for any path containing `&`, `'`, `"`, `$`,
+    // `?`, `#`, `%`, or any non-ASCII byte.
+    let html_url = file_url(&html_path)?;
+    let budget = chrome_budget_ms(&md);
+
     let status = Command::new(&chrome)
-        .args([
-            "--headless",
-            "--disable-gpu",
-            "--no-pdf-header-footer",
-            "--virtual-time-budget=10000",
-        ])
+        .args(["--headless", "--disable-gpu", "--no-pdf-header-footer"])
+        .arg(format!("--virtual-time-budget={budget}"))
         .arg(format!("--print-to-pdf={}", output.display()))
-        .arg(format!("file://{}", html_path.display()))
+        .arg(&html_url)
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status()
@@ -211,13 +320,83 @@ pub fn render_pdf(input: &Path, output: &Path, template: &str) -> Result<()> {
     Ok(())
 }
 
-fn scratch_dir(output: &Path) -> PathBuf {
+/// Per-render scratch directory adjacent to the output. Salted with PID +
+/// nanosecond timestamp so that two concurrent `md4x` runs writing to the
+/// same output path don't collide on the same scratch dir (Bug J).
+pub fn scratch_dir(output: &Path) -> PathBuf {
+    let pid = std::process::id();
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
     let mut name = output
         .file_name()
         .map(|s| s.to_os_string())
         .unwrap_or_default();
-    name.push(".work");
+    name.push(format!(".work-{pid}-{nanos}"));
     output.with_file_name(name)
+}
+
+/// Build a `file://` URL from an absolute filesystem path with **aggressive**
+/// percent-encoding. Chrome's `file://` URL parser is stricter than RFC 3986
+/// — it does not accept the sub-delim set (`& ' ( ) * + , ; = ! $`) raw in
+/// path components, even though the RFC allows them. Encoding everything
+/// except the unreserved set (`A-Z a-z 0-9 - . _ ~`) plus `/` keeps Chrome
+/// happy without losing path-segment structure.
+pub fn file_url(p: &Path) -> Result<String> {
+    use percent_encoding::{utf8_percent_encode, AsciiSet, NON_ALPHANUMERIC};
+    /// Encode every byte except the RFC 3986 unreserved set + `/`.
+    const FILE_PATH: &AsciiSet = &NON_ALPHANUMERIC
+        .remove(b'/')
+        .remove(b'-')
+        .remove(b'.')
+        .remove(b'_')
+        .remove(b'~');
+    if !p.is_absolute() {
+        bail!(
+            "cannot build file:// URL from {} (must be absolute)",
+            p.display()
+        );
+    }
+    let s = p
+        .to_str()
+        .ok_or_else(|| anyhow!("non-UTF-8 path: {}", p.display()))?;
+    let encoded: String = utf8_percent_encode(s, FILE_PATH).collect();
+    Ok(format!("file://{encoded}"))
+}
+
+/// Truthy env-var parsing — accepts the common Unix-tool conventions.
+/// Used for `KEEP_WORK` so `KEEP_WORK=true`, `=yes`, `=on`, `=1` all behave
+/// the same.
+pub fn is_truthy(s: &str) -> bool {
+    matches!(
+        s.trim().to_ascii_lowercase().as_str(),
+        "1" | "true" | "yes" | "on"
+    )
+}
+
+/// Compute Chrome's `--virtual-time-budget` for this document. Mermaid is
+/// rendered in-browser at print time; each diagram does dozens of DOM
+/// operations that advance virtual time, so the fixed 10s budget we used
+/// to ship was inadequate for diagram-heavy docs (50+ blocks rendered
+/// partially). Scale the budget linearly with mermaid block count, capped
+/// at 60s so absurd inputs don't translate into multi-minute waits.
+pub fn chrome_budget_ms(md: &str) -> u32 {
+    let mermaid_count = md
+        .lines()
+        .filter(|l| {
+            let t = l.trim_start();
+            t == "```mermaid" || t.starts_with("```mermaid ") || t.starts_with("```mermaid\t")
+        })
+        .count() as u32;
+    const BASE_MS: u32 = 5_000;
+    const PER_MERMAID_MS: u32 = 300;
+    const SAFETY_MS: u32 = 2_000;
+    const CAP_MS: u32 = 60_000;
+    BASE_MS
+        .saturating_add(mermaid_count.saturating_mul(PER_MERMAID_MS))
+        .saturating_add(SAFETY_MS)
+        .min(CAP_MS)
 }
 
 /// Locate a Chrome (or Chromium-based) browser binary.

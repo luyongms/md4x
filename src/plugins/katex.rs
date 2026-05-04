@@ -130,35 +130,62 @@ pub fn collapse_display_math_blocks(md: &str) -> String {
 }
 
 /// Walk `s`, converting `$...$` regions into KaTeX inline-math spans.
-/// Non-math text is HTML-escaped. Unmatched `$` survives as a literal dollar.
+///
+/// Uses pandoc's / CommonMark math-extension delimiter rules to disambiguate
+/// math from literal `$`:
+///   - A `$` is a math *opener* only if the following char is non-whitespace
+///     and non-digit (so `$5` is literal currency, not the start of math).
+///   - A `$` is a math *closer* only if the preceding char is non-whitespace
+///     (so a sentence ending with ` $` doesn't accidentally close math).
+///
+/// If a candidate opener has no valid closer, we emit a literal `$` and keep
+/// scanning. Non-math text is HTML-escaped in chunks; `$` itself is not an
+/// HTML metacharacter so we never need to escape it.
 fn render_inline_math(s: &str) -> String {
+    let chars: Vec<char> = s.chars().collect();
     let mut out = String::with_capacity(s.len());
-    let mut buf = String::new();
-    let mut in_math = false;
-    for c in s.chars() {
-        if c == '$' {
-            if in_math {
-                out.push_str("<span data-math-style=\"inline\">");
-                out.push_str(&html_escape(&buf));
-                out.push_str("</span>");
-                buf.clear();
-                in_math = false;
-            } else {
-                out.push_str(&html_escape(&buf));
-                buf.clear();
-                in_math = true;
+    let mut i = 0;
+    while i < chars.len() {
+        if chars[i] == '$' {
+            let next = chars.get(i + 1).copied();
+            let is_opener = matches!(next, Some(c) if !c.is_whitespace() && !c.is_ascii_digit());
+            if is_opener {
+                if let Some(close) = find_math_close(&chars, i + 1) {
+                    let math_src: String = chars[i + 1..close].iter().collect();
+                    out.push_str("<span data-math-style=\"inline\">");
+                    out.push_str(&html_escape(&math_src));
+                    out.push_str("</span>");
+                    i = close + 1;
+                    continue;
+                }
             }
+            // Literal dollar sign.
+            out.push('$');
+            i += 1;
         } else {
-            buf.push(c);
+            // Run-of-non-`$` chunk: html-escape once.
+            let start = i;
+            while i < chars.len() && chars[i] != '$' {
+                i += 1;
+            }
+            let chunk: String = chars[start..i].iter().collect();
+            out.push_str(&html_escape(&chunk));
         }
     }
-    if in_math {
-        out.push('$');
-        out.push_str(&html_escape(&buf));
-    } else {
-        out.push_str(&html_escape(&buf));
-    }
     out
+}
+
+/// Find the index of a valid math closer starting from `from`. A `$` is a
+/// valid closer only if the previous char is non-whitespace.
+fn find_math_close(chars: &[char], from: usize) -> Option<usize> {
+    let mut j = from;
+    while j < chars.len() {
+        if chars[j] == '$' && j > 0 && !chars[j - 1].is_whitespace() {
+            return Some(j);
+        }
+        j += 1;
+    }
+    None
 }
 
 fn extract_dir(dir: &Dir<'_>, dst: &Path) -> Result<()> {
