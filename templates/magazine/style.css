@@ -267,7 +267,7 @@ pre.mermaid {
   page-break-inside: avoid;
   overflow: visible;
 }
-pre.mermaid svg { max-width: 100%; height: auto; }
+pre.mermaid svg { max-width: 100%; max-height: 220mm; height: auto; width: auto; }
 
 table {
   border-collapse: collapse;
