@@ -98,6 +98,8 @@ pub fn markdown_to_html(md: &str) -> String {
 pub fn markdown_to_html_with(md: &str, registry: &Registry) -> String {
     use comrak::{parse_document, Arena, ComrakOptions};
 
+    let preprocessed = registry.preprocess_markdown(md);
+
     let mut options = ComrakOptions::default();
     options.extension.table = true;
     options.extension.footnotes = true;
@@ -109,7 +111,7 @@ pub fn markdown_to_html_with(md: &str, registry: &Registry) -> String {
     registry.configure_parse(&mut options);
 
     let arena = Arena::new();
-    let root = parse_document(&arena, md, &options);
+    let root = parse_document(&arena, &preprocessed, &options);
     registry.rewrite_ast(root);
 
     let mut comrak_plugins = comrak::Plugins::default();
@@ -143,6 +145,13 @@ pub fn render_pdf(input: &Path, output: &Path, template: &str) -> Result<()> {
     let scratch = scratch_dir(output);
     fs::create_dir_all(&scratch)
         .with_context(|| format!("creating scratch dir {}", scratch.display()))?;
+    // `file://` URLs handed to Chrome must be absolute. If the user passed a
+    // relative `-o` path, the scratch dir is relative too and Chrome rejects
+    // `file://relative/path/...` with ERR_INVALID_URL — silently breaking
+    // mermaid + KaTeX which load via that page. Canonicalize once.
+    let scratch = scratch
+        .canonicalize()
+        .with_context(|| format!("canonicalizing scratch dir {}", scratch.display()))?;
     let keep_scratch = env::var("KEEP_WORK").as_deref() == Ok("1");
 
     fs::write(scratch.join("style.css"), style_css.as_bytes())

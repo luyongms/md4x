@@ -32,6 +32,10 @@ impl Plugin for KatexPlugin {
         "katex"
     }
 
+    fn preprocess_markdown(&self, md: &str) -> Option<String> {
+        Some(collapse_display_math_blocks(md))
+    }
+
     fn configure_parse(&self, opts: &mut comrak::ComrakOptions) {
         opts.extension.math_dollars = true;
     }
@@ -53,6 +57,76 @@ impl Plugin for KatexPlugin {
         // Always claim — cover text gets html-escaped here, plus inline math turned into spans.
         Some(render_inline_math(text))
     }
+}
+
+/// Collapse multi-line `$$...$$` display-math blocks into a single line so
+/// comrak's *inline-level* `math_dollars` extension can recognize them.
+///
+/// Without this, a markdown like:
+///
+/// ```text
+/// $$
+/// \mathbf{A}\cdot\mathbf{x}
+/// =
+/// \mathbf{b}
+/// $$
+/// ```
+///
+/// gets parsed by CommonMark's Setext rule as an H1 (the bare `=` line is a
+/// level-1 underline), shredding the math block before math processing runs.
+/// Collapsing to `$$ \mathbf{A}\cdot\mathbf{x} = \mathbf{b} $$` on a single
+/// line lets comrak's math extension claim it.
+///
+/// Fenced code blocks are skipped — `$$` inside ```` ``` ```` is left alone.
+pub fn collapse_display_math_blocks(md: &str) -> String {
+    let mut out = String::with_capacity(md.len());
+    let mut in_code_fence = false;
+    let mut in_math = false;
+    let mut buf = String::new();
+
+    for line in md.lines() {
+        let trimmed_start = line.trim_start();
+
+        if !in_math && trimmed_start.starts_with("```") {
+            in_code_fence = !in_code_fence;
+            out.push_str(line);
+            out.push('\n');
+            continue;
+        }
+        if in_code_fence {
+            out.push_str(line);
+            out.push('\n');
+            continue;
+        }
+
+        if line.trim() == "$$" {
+            if in_math {
+                buf.push_str("$$");
+                out.push_str(&buf);
+                out.push('\n');
+                buf.clear();
+                in_math = false;
+            } else {
+                in_math = true;
+                buf.clear();
+                buf.push_str("$$ ");
+            }
+            continue;
+        }
+        if in_math {
+            buf.push_str(line.trim());
+            buf.push(' ');
+        } else {
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+
+    // Unclosed math block — emit raw rather than dropping content.
+    if in_math {
+        out.push_str(&buf);
+    }
+    out
 }
 
 /// Walk `s`, converting `$...$` regions into KaTeX inline-math spans.

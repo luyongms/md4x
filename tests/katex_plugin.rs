@@ -48,6 +48,38 @@ fn init_js_renders_inline_and_display_spans() {
 }
 
 #[test]
+fn preprocess_collapses_multiline_display_math_so_setext_h1_doesnt_eat_it() {
+    // Bug #2: bare `=` line under a paragraph in markdown becomes a Setext H1
+    // underline, destroying the math block. KaTeX's preprocess_markdown must
+    // collapse multi-line `$$...$$` blocks into a single line.
+    let md = "$$\n\\mathbf{A}\\cdot\\mathbf{x}\n=\n\\mathbf{b}\n$$\n";
+    let out = KatexPlugin.preprocess_markdown(md).unwrap();
+    assert!(
+        !out.contains("\n=\n"),
+        "bare `=` line still present: {out}"
+    );
+    assert!(
+        out.contains("$$ \\mathbf{A}\\cdot\\mathbf{x} = \\mathbf{b} $$"),
+        "expected single-line collapsed math: {out}"
+    );
+}
+
+#[test]
+fn preprocess_leaves_inline_math_alone() {
+    let md = "Inline $\\vec{v}$ here.\n";
+    let out = KatexPlugin.preprocess_markdown(md).unwrap();
+    assert_eq!(out, md);
+}
+
+#[test]
+fn preprocess_does_not_collapse_dollars_inside_fenced_code() {
+    let md = "```text\n$$\nfoo\n=\nbar\n$$\n```\n";
+    let out = KatexPlugin.preprocess_markdown(md).unwrap();
+    assert!(out.contains("\n=\n"), "code-fenced `$$` was wrongly touched: {out}");
+    assert!(out.contains("\n$$\nfoo\n"), "code-fenced markers altered: {out}");
+}
+
+#[test]
 fn extract_assets_writes_katex_dir_with_css_and_js() {
     let tmp = tempdir();
     KatexPlugin.extract_assets(&tmp).unwrap();

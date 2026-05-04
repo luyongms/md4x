@@ -107,6 +107,23 @@ fn markdown_to_html_emits_pre_class_mermaid_for_mermaid_fence() {
 }
 
 #[test]
+fn markdown_to_html_handles_multiline_display_math_with_bare_equals() {
+    // Bug #2 regression: bare `=` line inside `$$...$$` would become a
+    // Setext H1 underline before math could claim the block.
+    let md = "$$\n\\mathbf{A}\\cdot\\mathbf{x}\n=\n\\mathbf{b}\n$$\n";
+    let html = render::markdown_to_html(md);
+    assert!(!html.contains("<h1"), "math block was promoted to H1: {html}");
+    assert!(
+        html.contains("data-math-style=\"display\""),
+        "expected display-math span: {html}"
+    );
+    assert!(
+        html.contains("\\mathbf{A}\\cdot\\mathbf{x} = \\mathbf{b}"),
+        "math source mangled or dropped: {html}"
+    );
+}
+
+#[test]
 fn markdown_to_html_preserves_math_dollars_verbatim() {
     let md = "Inline $\\vec{v}$ and a sum $\\sum_{i=1}^n u_i v_i$.\n\n$$\n\\langle u, v \\rangle\n$$\n";
     let html = render::markdown_to_html(md);
