@@ -29,6 +29,10 @@ pub enum Template {
     Magazine,
     Swiss,
     Stem,
+    Tufte,
+    #[value(name = "newyorker")]
+    NewYorker,
+    Brutalist,
 }
 
 impl Template {
@@ -37,6 +41,9 @@ impl Template {
             Template::Magazine => "magazine",
             Template::Swiss => "swiss",
             Template::Stem => "stem",
+            Template::Tufte => "tufte",
+            Template::NewYorker => "newyorker",
+            Template::Brutalist => "brutalist",
         }
     }
 }

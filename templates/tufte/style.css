@@ -1,0 +1,344 @@
+/* =====================================================================
+   Tufte template — wide outer margin, hairline rules, perfect tables.
+   ET Bembo / Charter serif. Marginalia-ready. Sidenote sample at end.
+   Restrained palette: warm black, paper white, single ochre accent.
+   ===================================================================== */
+
+@page {
+  size: A4;
+  /* Asymmetric margins: narrow left, wide right margin reserved for sidenotes. */
+  margin: 24mm 50mm 24mm 28mm;
+  @top-left {
+    content: string(doc-title);
+    font-family: "Charter", "Cambria", "Iowan Old Style", Georgia, serif;
+    font-size: 8.5pt;
+    font-style: italic;
+    color: #888;
+  }
+  @bottom-right {
+    content: counter(page);
+    font-family: "Charter", "Cambria", Georgia, serif;
+    font-size: 9pt;
+    color: #555;
+  }
+}
+@page :first {
+  margin: 0;
+  @top-left { content: none; }
+  @bottom-right { content: none; }
+}
+
+html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+
+body {
+  font-family: "Charter", "Cambria", "Iowan Old Style", "Source Serif Pro", Georgia, serif;
+  font-size: 11.5pt;
+  line-height: 1.55;
+  color: #1a1a1a;
+  background: #fffefb;
+  hyphens: auto;
+  -webkit-hyphens: auto;
+  text-rendering: geometricPrecision;
+  font-feature-settings: "kern" 1, "liga" 1, "onum" 1;
+  margin: 0;
+  padding: 0;
+  max-width: none;
+}
+
+/* Cover ---------------------------------------------------------------- */
+.cover-block-right { display: none; }
+.cover-author { display: none; }
+.cover-page {
+  position: relative;
+  width: calc(100% + 78mm);
+  height: 297mm;
+  margin: -24mm -50mm 0 -28mm;
+  page-break-after: always;
+  break-after: page;
+  background: #fffefb;
+  overflow: hidden;
+}
+.cover-content {
+  position: absolute;
+  top: 38%;
+  left: 28mm;
+  right: 50mm;
+  text-align: left;
+}
+.cover-eyebrow {
+  font-family: "Charter", "Cambria", Georgia, serif;
+  font-size: 9pt;
+  font-style: italic;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #b06a1c;
+  margin: 0 0 14mm 0;
+}
+.cover-title {
+  font-family: "Charter", "Cambria", "Iowan Old Style", Georgia, serif;
+  font-size: 44pt;
+  font-weight: 400;
+  line-height: 1.05;
+  letter-spacing: -0.01em;
+  color: #1a1a1a;
+  margin: 0 0 10mm 0;
+  max-width: 130mm;
+}
+.cover-subtitle {
+  font-family: "Charter", "Cambria", Georgia, serif;
+  font-size: 13pt;
+  font-style: italic;
+  font-weight: 400;
+  line-height: 1.45;
+  color: #444;
+  max-width: 110mm;
+  margin: 0 0 14mm 0;
+}
+.cover-rule {
+  width: 22mm;
+  height: 1px;
+  background: #1a1a1a;
+  margin: 10mm 0;
+}
+.cover-meta {
+  font-family: "Charter", "Cambria", Georgia, serif;
+  font-size: 9pt;
+  font-style: italic;
+  letter-spacing: 0.06em;
+  color: #666;
+}
+.cover-meta strong { color: #1a1a1a; font-weight: 700; font-style: normal; }
+
+/* Hide first H1 (cover shows it) */
+body > h1:first-of-type { display: none; }
+
+/* String-set for running title */
+h1 { string-set: doc-title content(); }
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: "Charter", "Cambria", "Iowan Old Style", Georgia, serif;
+  color: #1a1a1a;
+  font-weight: 700;
+  page-break-after: avoid;
+  break-after: avoid;
+}
+
+h1 {
+  font-size: 24pt;
+  line-height: 1.15;
+  margin: 0 0 8mm 0;
+  padding-top: 4mm;
+  font-weight: 400;       /* Tufte: large but not bold */
+  letter-spacing: -0.005em;
+}
+body > h1:not(:first-of-type) {
+  page-break-before: always;
+  break-before: page;
+}
+
+h2 {
+  font-size: 14pt;
+  font-weight: 400;
+  font-style: italic;
+  line-height: 1.25;
+  margin: 8mm 0 3mm 0;
+  color: #1a1a1a;
+}
+
+h3 {
+  font-size: 11.5pt;
+  font-weight: 700;
+  font-variant-caps: small-caps;
+  letter-spacing: 0.06em;
+  margin: 6mm 0 2mm 0;
+  color: #1a1a1a;
+}
+
+h4 {
+  font-size: 11pt;
+  font-style: italic;
+  font-weight: 700;
+  margin: 4mm 0 1.5mm 0;
+}
+
+p {
+  margin: 0 0 0.7em;
+  text-align: justify;
+  orphans: 3;
+  widows: 3;
+}
+
+/* Lead paragraph after H1 — slightly larger, no indent */
+h1 + p {
+  font-size: 12pt;
+  line-height: 1.5;
+}
+
+/* Subsequent paragraphs get a first-line indent (book convention),
+   but the paragraph immediately after a heading does not. */
+p + p { text-indent: 1.4em; }
+
+/* Blockquote — hanging quote, no left border, italic */
+blockquote {
+  margin: 4mm 6mm 4mm 0;
+  padding: 0;
+  font-style: italic;
+  font-size: 11pt;
+  line-height: 1.55;
+  color: #2a2a2a;
+  page-break-inside: avoid;
+  border: none;
+  position: relative;
+}
+blockquote::before {
+  content: "“";
+  position: absolute;
+  left: -3mm;
+  top: -0.05em;
+  font-size: 24pt;
+  color: #b06a1c;
+  font-style: normal;
+  line-height: 1;
+}
+blockquote p { text-indent: 0; }
+
+/* Code — quiet, no chrome */
+code {
+  font-family: "JetBrains Mono", "SF Mono", "Iosevka", Menlo, Consolas, monospace;
+  font-size: 9.6pt;
+  background: #f3efe6;
+  padding: 0 4px;
+  border-radius: 2px;
+  color: #5a3010;
+}
+
+pre {
+  background: #f7f4ed;
+  color: #1a1a1a;
+  padding: 4mm 5mm;
+  border-radius: 0;
+  border-left: 2px solid #b06a1c;
+  border-top: none;
+  border-bottom: none;
+  border-right: none;
+  font-size: 9pt;
+  line-height: 1.5;
+  overflow: hidden;
+  page-break-inside: avoid;
+  margin: 4mm 0;
+}
+pre code { background: none; color: inherit; padding: 0; }
+
+/* Tufte tables — hairline rules, no zebra, no border-collapse fuss */
+table {
+  border-collapse: collapse;
+  margin: 4mm 0;
+  font-family: "Charter", "Cambria", Georgia, serif;
+  font-size: 10pt;
+  page-break-inside: avoid;
+  border-top: 0.6pt solid #1a1a1a;
+  border-bottom: 0.6pt solid #1a1a1a;
+  width: auto;            /* Tables sized to content, not 100% */
+  min-width: 60%;
+}
+th {
+  text-align: left;
+  padding: 1.5mm 4mm 1.5mm 0;
+  font-weight: 700;
+  font-style: italic;
+  font-size: 10pt;
+  border-bottom: 0.4pt solid #888;
+}
+td {
+  padding: 1.2mm 4mm 1.2mm 0;
+  vertical-align: top;
+  border: none;
+}
+/* Numeric columns right-aligned by convention — opt in via class */
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* Lists */
+ul, ol { margin: 2mm 0 4mm 6mm; padding: 0; }
+li { margin: 1mm 0; line-height: 1.5; }
+li > p { margin: 0 0 1mm 0; text-indent: 0; }
+
+/* Hairline horizontal rule */
+hr {
+  border: none;
+  border-top: 0.4pt solid #888;
+  margin: 8mm 0;
+  height: 0;
+}
+
+/* Mermaid + math integration */
+pre.mermaid {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 6mm 0;
+  text-align: center;
+  page-break-inside: avoid;
+  overflow: visible;
+}
+pre.mermaid svg { max-width: 100%; height: auto; }
+.katex-display { margin: 4mm 0; page-break-inside: avoid; }
+
+/* Figures — allow them to extend into the right margin (full-bleed) */
+p.diagram, figure {
+  text-align: left;
+  margin: 6mm -50mm 6mm 0;     /* Reach into the wide right margin */
+  page-break-inside: avoid;
+}
+p.diagram img, figure img { max-width: 100%; height: auto; }
+figcaption {
+  font-size: 9pt;
+  font-style: italic;
+  color: #555;
+  margin-top: 1mm;
+  padding-right: 50mm;          /* Caption stays in the body column */
+}
+
+/* Sidenote scaffolding (CSS-only, opt-in via <aside class="sidenote">).
+   Authors can add asides directly in markdown via raw HTML when desired. */
+aside.sidenote {
+  float: right;
+  clear: right;
+  width: 42mm;
+  margin: 0 -50mm 4mm 4mm;      /* Push into the right margin reservoir */
+  font-size: 9pt;
+  line-height: 1.4;
+  font-style: italic;
+  color: #444;
+}
+
+/* Footnotes (comrak-emitted) — render at section end, not as sidenotes,
+   in italic small type. Sidenote conversion is a future enhancement. */
+section.footnotes {
+  margin-top: 10mm;
+  padding-top: 4mm;
+  border-top: 0.4pt solid #888;
+  font-size: 9.5pt;
+  line-height: 1.45;
+  font-style: italic;
+  color: #444;
+}
+section.footnotes ol { margin-left: 6mm; }
+section.footnotes p { text-indent: 0; }
+
+/* Inline */
+strong { font-weight: 700; color: #1a1a1a; }
+em { font-style: italic; }
+a {
+  color: #1a1a1a;
+  text-decoration: none;
+  border-bottom: 0.4pt solid #b06a1c;
+}
+
+/* Definition lists */
+dl { margin: 4mm 0; }
+dt { font-weight: 700; font-style: italic; margin-top: 3mm; }
+dd { margin: 1mm 0 0 6mm; color: #333; }
+
+/* Avoid orphans */
+h1, h2, h3, h4 { break-after: avoid-page; }
+table, pre, blockquote, p.diagram, figure { break-inside: avoid; }

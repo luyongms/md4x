@@ -148,11 +148,11 @@ fn style_css_reports_unknown_template_helpfully() {
 }
 
 #[test]
-fn available_templates_includes_the_three_we_ship() {
+fn available_templates_includes_what_we_ship() {
     let names = md4x::templates::available();
-    assert!(names.contains(&"magazine"));
-    assert!(names.contains(&"swiss"));
-    assert!(names.contains(&"stem"));
+    for expected in ["magazine", "swiss", "stem", "tufte", "newyorker", "brutalist"] {
+        assert!(names.contains(&expected), "missing template: {expected}; have: {names:?}");
+    }
 }
 
 #[test]

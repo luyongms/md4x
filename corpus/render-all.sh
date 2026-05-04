@@ -19,7 +19,7 @@ if [[ ! -x "$MD4X" ]]; then
   exit 1
 fi
 
-TEMPLATES=(magazine swiss stem)
+TEMPLATES=(magazine swiss stem tufte newyorker brutalist)
 FILTER_TEMPLATE=""
 FILTER_MD=""
 
