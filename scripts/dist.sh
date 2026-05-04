@@ -1,16 +1,18 @@
 #!/usr/bin/env bash
-# scripts/dist.sh — build a shippable macOS tarball.
+# scripts/dist.sh — build shippable per-arch macOS tarballs.
 #
-# Bundles templates into the binary (--features bundle-templates) so the
-# tarball is just `md4x` + a README. Lipos arm64 + x86_64 into one
-# universal binary. Run from the repo root.
+# Bundles templates into the binary (--features bundle-templates) so each
+# tarball is just `md4x` + a README. One tarball per architecture
+# (no universal binary — half the size, friend picks the matching one).
 #
 # Usage:
-#   scripts/dist.sh
+#   scripts/dist.sh                  # build both arm64 and x86_64
+#   scripts/dist.sh arm64            # only arm64 (Apple Silicon)
+#   scripts/dist.sh x86_64           # only x86_64 (Intel)
 #
 # Output:
-#   dist/md4x-<version>-macos-universal.tar.gz
-#   dist/md4x-<version>-macos-universal.tar.gz.sha256
+#   dist/md4x-<version>-macos-<arch>.tar.gz
+#   dist/md4x-<version>-macos-<arch>.tar.gz.sha256
 
 set -euo pipefail
 
@@ -20,37 +22,56 @@ cd "$REPO_DIR"
 VERSION="$(awk -F'"' '/^version *= *"/ {print $2; exit}' Cargo.toml)"
 [[ -n "$VERSION" ]] || { echo "could not parse version from Cargo.toml" >&2; exit 1; }
 
-NAME="md4x-${VERSION}"
-DIST="dist/${NAME}"
-TARBALL="dist/${NAME}-macos-universal.tar.gz"
+rust_target_for() {
+  case "$1" in
+    arm64)  echo aarch64-apple-darwin ;;
+    x86_64) echo x86_64-apple-darwin ;;
+    *)      echo "unknown arch: $1 (expected arm64 or x86_64)" >&2; return 2 ;;
+  esac
+}
 
-echo "==> md4x ${VERSION} dist build"
-
-rm -rf "$DIST" "$TARBALL" "$TARBALL.sha256"
-mkdir -p "$DIST"
-
-if ! rustup target list --installed | grep -q '^x86_64-apple-darwin$'; then
-  echo "==> installing x86_64-apple-darwin Rust target"
-  rustup target add x86_64-apple-darwin >/dev/null
+if [[ $# -eq 0 ]]; then
+  ARCHES=(arm64 x86_64)
+else
+  ARCHES=("$@")
 fi
 
-echo "==> cargo build --features bundle-templates --target aarch64-apple-darwin"
-cargo build --release --features bundle-templates --target aarch64-apple-darwin
-echo "==> cargo build --features bundle-templates --target x86_64-apple-darwin"
-cargo build --release --features bundle-templates --target x86_64-apple-darwin
+for arch in "${ARCHES[@]}"; do
+  rust_target_for "$arch" >/dev/null
+done
 
-echo "==> lipo universal binary"
-lipo -create -output "$DIST/md4x" \
-  "target/aarch64-apple-darwin/release/md4x" \
-  "target/x86_64-apple-darwin/release/md4x"
-file "$DIST/md4x"
+echo "==> md4x ${VERSION} dist build (${ARCHES[*]})"
 
-cat > "$DIST/README.txt" <<EOF
-md4x ${VERSION} — Markdown to magazine-quality PDF
-====================================================
+for arch in "${ARCHES[@]}"; do
+  tgt="$(rust_target_for "$arch")"
+  name="md4x-${VERSION}"
+  staging="dist/${name}-macos-${arch}"
+  tarball="dist/${name}-macos-${arch}.tar.gz"
 
-Self-contained build. Universal binary works on Apple Silicon and Intel Macs.
-Templates and all renderer assets (KaTeX, mermaid) are embedded in the binary.
+  rm -rf "$staging" "$tarball" "$tarball.sha256"
+
+  if ! rustup target list --installed | grep -q "^${tgt}\$"; then
+    echo "==> installing $tgt Rust target"
+    rustup target add "$tgt" >/dev/null
+  fi
+
+  echo "==> cargo build --features bundle-templates --target $tgt"
+  cargo build --release --features bundle-templates --target "$tgt"
+
+  mkdir -p "$staging"
+  cp "target/${tgt}/release/md4x" "$staging/md4x"
+  file "$staging/md4x"
+
+  cat > "$staging/README.txt" <<EOF
+md4x ${VERSION} — Markdown to magazine-quality PDF (macOS ${arch})
+====================================================================
+
+Self-contained build. Templates and all renderer assets (KaTeX, mermaid)
+are embedded in the binary; the tarball is just \`md4x\` and this README.
+
+This build is for ${arch} Macs. Verify with \`uname -m\` — should print:
+  ${arch}
+${arch} = $(if [[ $arch == arm64 ]]; then echo "Apple Silicon (M1/M2/M3/M4)"; else echo "Intel"; fi).
 
 REQUIREMENTS
   - macOS
@@ -59,13 +80,13 @@ REQUIREMENTS
     set CHROME=/path/to/chrome.
 
 INSTALL
-  1. Extract the tarball anywhere (e.g. ~/Applications/${NAME}/).
+  1. Extract the tarball anywhere (e.g. ~/Applications/md4x-${VERSION}/).
   2. macOS may quarantine the binary on first run. If you see
      "cannot be opened because the developer cannot be verified", run:
-         xattr -d com.apple.quarantine ~/Applications/${NAME}/md4x
+         xattr -d com.apple.quarantine ~/Applications/md4x-${VERSION}/md4x
      or right-click the binary in Finder and choose Open.
   3. Optionally add the directory to your PATH:
-         echo 'export PATH="\$HOME/Applications/${NAME}:\$PATH"' >> ~/.zshrc
+         echo 'export PATH="\$HOME/Applications/md4x-${VERSION}:\$PATH"' >> ~/.zshrc
 
 USAGE
   md4x INPUT.md                              # → INPUT.pdf, magazine template
@@ -90,11 +111,12 @@ LIMITATIONS
   - Chrome must be installed
 EOF
 
-echo "==> tarball"
-( cd dist && tar -czf "${NAME}-macos-universal.tar.gz" "${NAME}" )
-shasum -a 256 "$TARBALL" | tee "$TARBALL.sha256"
+  ( cd dist && tar -czf "${name}-macos-${arch}.tar.gz" "${name}-macos-${arch}" )
+  shasum -a 256 "$tarball" | tee "$tarball.sha256"
 
-SIZE=$(ls -lh "$TARBALL" | awk '{print $5}')
-echo
-echo "Wrote: $TARBALL ($SIZE)"
-echo "       $TARBALL.sha256"
+  size=$(ls -lh "$tarball" | awk '{print $5}')
+  echo "Wrote: $tarball ($size)"
+  echo
+done
+
+echo "Done."
