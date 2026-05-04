@@ -154,3 +154,12 @@ fn available_templates_includes_the_three_we_ship() {
     assert!(names.contains(&"swiss"));
     assert!(names.contains(&"stem"));
 }
+
+#[test]
+fn chrome_install_help_contains_actionable_guidance() {
+    let help = md4x::render::chrome_install_help();
+    assert!(help.contains("https://www.google.com/chrome/"), "missing download URL: {help}");
+    assert!(help.contains("brew install"), "missing Homebrew hint: {help}");
+    assert!(help.contains("CHROME="), "missing env-var fallback: {help}");
+    assert!(help.contains("no fallback renderer"), "missing 'no fallback' clarity: {help}");
+}

@@ -125,8 +125,6 @@ pub fn render_pdf(input: &Path, output: &Path, template: &str) -> Result<()> {
     let style_css = templates::style_css(template)?;
     let cover_template = templates::cover_html()?;
 
-    let registry = Registry::default();
-
     let md = fs::read_to_string(input)
         .with_context(|| format!("reading input {}", input.display()))?;
     let stem = input
@@ -134,6 +132,10 @@ pub fn render_pdf(input: &Path, output: &Path, template: &str) -> Result<()> {
         .and_then(|s| s.to_str())
         .unwrap_or("document");
 
+    // Fail fast if Chrome is missing — before we render HTML or create a scratch dir.
+    let chrome = locate_chrome()?;
+
+    let registry = Registry::default();
     let cover_values = extract_cover_values(&md, stem);
     let cover_html = substitute_cover_with(&cover_template, &cover_values, &registry);
     let body_html = markdown_to_html_with(&md, &registry);
@@ -165,7 +167,6 @@ pub fn render_pdf(input: &Path, output: &Path, template: &str) -> Result<()> {
     fs::write(&html_path, html_doc.as_bytes())
         .with_context(|| format!("writing {}", html_path.display()))?;
 
-    let chrome = locate_chrome()?;
     let status = Command::new(&chrome)
         .args([
             "--headless",
@@ -210,17 +211,37 @@ fn scratch_dir(output: &Path) -> PathBuf {
     output.with_file_name(name)
 }
 
-fn locate_chrome() -> Result<PathBuf> {
+/// Locate a Chrome (or Chromium-based) browser binary.
+/// Search order:
+///   1. `CHROME` env var (must exist as an executable file)
+///   2. `/Applications/Google Chrome.app/...` (macOS system install)
+///   3. `~/Applications/Google Chrome.app/...` (per-user install)
+///   4. `which google-chrome` / `chromium` / `chromium-browser`
+/// On total miss, returns a multi-line error with install guidance.
+pub fn locate_chrome() -> Result<PathBuf> {
     if let Ok(p) = env::var("CHROME") {
-        let pb = PathBuf::from(p);
+        let pb = PathBuf::from(&p);
         if pb.is_file() {
             return Ok(pb);
         }
-        bail!("CHROME env var set but not executable: {}", pb.display());
+        bail!(
+            "CHROME env var points at {:?}, but no such executable exists.\n\
+             Set CHROME to the path of a Chrome / Chromium binary, or unset it to use auto-detection.",
+            p
+        );
     }
-    let mac = PathBuf::from("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome");
-    if mac.is_file() {
-        return Ok(mac);
+    let mut candidates: Vec<PathBuf> = vec![
+        PathBuf::from("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
+    ];
+    if let Ok(home) = env::var("HOME") {
+        candidates.push(PathBuf::from(format!(
+            "{home}/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+        )));
+    }
+    for c in &candidates {
+        if c.is_file() {
+            return Ok(c.clone());
+        }
     }
     for name in ["google-chrome", "chromium", "chromium-browser"] {
         if let Ok(out) = Command::new("which").arg(name).output() {
@@ -232,5 +253,22 @@ fn locate_chrome() -> Result<PathBuf> {
             }
         }
     }
-    bail!("Chrome not found; set CHROME=/path/to/chrome")
+    bail!("{}", chrome_install_help())
+}
+
+/// Multi-line install guidance shown when Chrome can't be located. Public so
+/// CLI / tests can render it consistently.
+pub fn chrome_install_help() -> String {
+    "\
+Chrome is required for PDF rendering, but no Chrome / Chromium browser was found.
+
+Install Google Chrome:
+  • Download:  https://www.google.com/chrome/
+  • Homebrew:  brew install --cask google-chrome
+
+If Chrome is installed at a non-standard path, point md4x at it:
+  CHROME=/path/to/chrome md4x ...
+
+md4x will not run without Chrome — there is no fallback renderer."
+        .to_string()
 }
