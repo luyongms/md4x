@@ -78,17 +78,6 @@ body {
   height: 90mm;
   background: #d61a1a;
 }
-/* A heavy black rule across the lower third of the cover. Sits *above* the
-   meta line, never collides with the subtitle. */
-.cover-page::after {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 36mm;
-  height: 3mm;
-  background: #000;
-}
 .cover-content {
   position: absolute;
   /* Title block lives under the red block: starts well below it so the
@@ -96,7 +85,7 @@ body {
   top: 100mm;
   left: 22mm;
   right: 22mm;
-  bottom: 50mm;
+  bottom: 22mm;
   display: flex;
   flex-direction: column;
 }
@@ -143,6 +132,8 @@ body {
   text-transform: uppercase;
   color: #000;
   margin-top: auto;       /* Pin to the bottom of the content area */
+  padding-top: 4mm;
+  border-top: 3mm solid #000;   /* Heavy bar anchored to the meta, not floating */
 }
 .cover-meta strong { color: #d61a1a; font-weight: 900; }
 
