@@ -43,6 +43,9 @@ fn render_html(md: String, template: String) -> Result<RenderedDoc, String> {
     const PREVIEW_CSS: &str = "\
         body { margin: 22mm !important; }\
         html { overflow-y: auto !important; }\
+        img { display: block !important; max-width: 100% !important; margin: 0 auto !important; }\
+        figure { text-align: center !important; margin: 1.5em auto !important; }\
+        figcaption { text-align: center !important; }\
     ";
     let html = format!(
         "<!DOCTYPE html>\n<html><head>\n\
