@@ -63,3 +63,41 @@ fn template_flag_rejects_unknown_value() {
         "stderr should mention bad template: {stderr}"
     );
 }
+
+// `find . -name '*.md' -exec md4x {} +` batches multiple paths into one
+// invocation. The CLI must accept N inputs.
+#[test]
+fn accepts_multiple_input_files() {
+    let out = Command::new(md4x_bin())
+        .args(["/no/such/a.md", "/no/such/b.md", "/no/such/c.md"])
+        .output()
+        .unwrap();
+    // It will fail (the files don't exist), but it must not fail with the
+    // clap "unexpected argument" error — that would mean the CLI shape
+    // refuses multiple positional args.
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        !stderr.contains("unexpected argument"),
+        "CLI rejected multi-input shape: {stderr}"
+    );
+    // Should mention each missing file (errors collected, not bailed-early).
+    assert!(stderr.contains("a.md"), "stderr missing a.md: {stderr}");
+    assert!(stderr.contains("b.md"), "stderr missing b.md: {stderr}");
+    assert!(stderr.contains("c.md"), "stderr missing c.md: {stderr}");
+}
+
+// With multiple inputs, `--output` doesn't make sense (one path can't fit
+// many). Reject early with a clear message.
+#[test]
+fn output_flag_rejected_with_multiple_inputs() {
+    let out = Command::new(md4x_bin())
+        .args(["/no/such/a.md", "/no/such/b.md", "-o", "/tmp/x.pdf"])
+        .output()
+        .unwrap();
+    assert!(!out.status.success(), "expected nonzero exit");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("--output") && stderr.contains("single input"),
+        "stderr should explain why -o is rejected: {stderr}"
+    );
+}
