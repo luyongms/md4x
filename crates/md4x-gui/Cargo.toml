@@ -6,6 +6,12 @@ edition.workspace = true
 [dependencies]
 md4x-core = { path = "../md4x-core" }
 anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tauri = { version = "2", features = [] }
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
 
 [[bin]]
 name = "md4x-gui"

@@ -1,1 +1,17 @@
-<!DOCTYPE html><html><body><h1>md4x GUI</h1></body></html>
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>md4x</title>
+  <script type="module">
+    import { invoke } from 'https://unpkg.com/@tauri-apps/api@2/core';
+    invoke('list_templates').then(t => {
+      document.getElementById('templates').textContent = t.join(', ');
+    });
+  </script>
+</head>
+<body>
+  <h1>md4x</h1>
+  <p>Templates: <span id="templates">loading...</span></p>
+</body>
+</html>
