@@ -9,7 +9,7 @@ fn plugin_has_stable_name() {
 fn ast_rewrite_replaces_mermaid_fence_with_pre_class_mermaid() {
     let md = "Before.\n\n```mermaid\ngraph TD;A-->B\n```\n\nAfter.\n";
     let html = md4x_core::plugins::testing::format_with_plugin(&MermaidPlugin, md);
-    assert!(html.contains("<pre class=\"mermaid\">"), "got: {html}");
+    assert!(html.contains("<pre class=\"mermaid\""), "got: {html}");
     // Source is HTML-escaped — `>` becomes `&gt;`.
     assert!(html.contains("graph TD;A--&gt;B"), "got: {html}");
     assert!(html.contains("<p>Before.</p>"), "got: {html}");

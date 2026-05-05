@@ -11,6 +11,8 @@ use super::{html_escape, Plugin};
 
 static MERMAID_JS: &[u8] = include_bytes!("../../mermaid.min.js");
 
+pub fn mermaid_js() -> &'static [u8] { MERMAID_JS }
+
 const HEAD_HTML: &str = "<script src=\"mermaid.min.js\"></script>\n";
 
 const INIT_JS: &str = "mermaid.initialize({startOnLoad:true});";
@@ -50,7 +52,8 @@ fn rewrite<'a>(node: &'a AstNode<'a>) {
             _ => None,
         };
         if let Some(src) = mermaid_src {
-            let html = format!("<pre class=\"mermaid\">{}</pre>", html_escape(&src));
+            let hash = super::block_hash(&src);
+            let html = format!("<pre class=\"mermaid\" data-md4x-hash=\"{hash}\">{}</pre>", html_escape(&src));
             data.value = NodeValue::HtmlBlock(NodeHtmlBlock { block_type: 0, literal: html });
             continue;
         }

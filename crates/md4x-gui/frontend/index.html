@@ -1,17 +1,38 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>md4x</title>
-  <script type="module">
-    import { invoke } from 'https://unpkg.com/@tauri-apps/api@2/core';
-    invoke('list_templates').then(t => {
-      document.getElementById('templates').textContent = t.join(', ');
-    });
-  </script>
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <h1>md4x</h1>
-  <p>Templates: <span id="templates">loading...</span></p>
+  <div id="toolbar">
+    <span id="filename">Untitled</span>
+    <span id="unsaved" hidden aria-label="unsaved changes">•</span>
+    <div id="toolbar-right">
+      <select id="template-select" aria-label="Template"></select>
+      <button id="export-btn">Export PDF</button>
+    </div>
+  </div>
+
+  <div id="panes">
+    <div id="editor-pane">
+      <textarea id="editor" spellcheck="false" placeholder="Type Markdown here…"></textarea>
+    </div>
+    <div id="resizer" role="separator" aria-orientation="vertical"></div>
+    <div id="preview-pane">
+      <iframe id="preview-a" title="Preview" sandbox="allow-scripts allow-same-origin"></iframe>
+      <iframe id="preview-b" title="Preview" sandbox="allow-scripts allow-same-origin"></iframe>
+    </div>
+  </div>
+
+  <div id="statusbar">
+    <span id="status-words">0 words</span>
+    <span id="status-lines">0 lines</span>
+    <span id="status-state">idle</span>
+  </div>
+
+  <script src="app.js"></script>
 </body>
 </html>

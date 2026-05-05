@@ -163,6 +163,16 @@ impl Default for Registry {
     }
 }
 
+/// FNV-1a 64-bit hash of `s`, returned as a 16-char hex string.
+pub(crate) fn block_hash(s: &str) -> String {
+    let mut h: u64 = 14_695_981_039_346_656_037;
+    for b in s.bytes() {
+        h ^= b as u64;
+        h = h.wrapping_mul(1_099_511_628_211);
+    }
+    format!("{h:016x}")
+}
+
 /// HTML-escape `s` (`&`, `<`, `>`, `"`, `'`).
 pub fn html_escape(s: &str) -> String {
     let mut out = String::with_capacity(s.len());

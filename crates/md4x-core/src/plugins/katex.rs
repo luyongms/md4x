@@ -13,6 +13,8 @@ use super::{html_escape, Plugin};
 
 static KATEX_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/katex");
 
+pub fn katex_dir() -> &'static Dir<'static> { &KATEX_DIR }
+
 const HEAD_HTML: &str = "\
 <link rel=\"stylesheet\" href=\"katex/katex.min.css\">\n\
 <script src=\"katex/katex.min.js\"></script>\n";
@@ -38,6 +40,10 @@ impl Plugin for KatexPlugin {
 
     fn configure_parse(&self, opts: &mut comrak::ComrakOptions) {
         opts.extension.math_dollars = true;
+    }
+
+    fn rewrite_ast<'a>(&self, root: &'a comrak::nodes::AstNode<'a>) {
+        add_math_hashes(root);
     }
 
     fn extract_assets(&self, scratch: &Path) -> Result<()> {
@@ -186,6 +192,30 @@ fn find_math_close(chars: &[char], from: usize) -> Option<usize> {
         j += 1;
     }
     None
+}
+
+fn add_math_hashes<'a>(node: &'a comrak::nodes::AstNode<'a>) {
+    use comrak::nodes::NodeValue;
+    for child in node.children() {
+        let math = {
+            let d = child.data.borrow();
+            match &d.value {
+                NodeValue::Math(m) => Some((m.literal.clone(), m.display_math)),
+                _ => None,
+            }
+        };
+        if let Some((literal, display)) = math {
+            let style = if display { "display" } else { "inline" };
+            let hash = super::block_hash(&literal);
+            let escaped = super::html_escape(&literal);
+            let s = format!(
+                "<span data-math-style=\"{style}\" data-md4x-hash=\"{hash}\">{escaped}</span>"
+            );
+            child.data.borrow_mut().value = NodeValue::HtmlInline(s);
+        } else {
+            add_math_hashes(child);
+        }
+    }
 }
 
 fn extract_dir(dir: &Dir<'_>, dst: &Path) -> Result<()> {

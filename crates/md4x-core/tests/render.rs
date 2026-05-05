@@ -140,7 +140,7 @@ fn markdown_to_html_emits_pre_class_mermaid_for_mermaid_fence() {
     let md = "Before.\n\n```mermaid\ngraph TD;A-->B\n```\n\nAfter.\n";
     let html = render::markdown_to_html(md);
     assert!(
-        html.contains("<pre class=\"mermaid\">"),
+        html.contains("<pre class=\"mermaid\""),
         "expected mermaid pre, got: {html}"
     );
     assert!(html.contains("graph TD;A--&gt;B"), "expected escaped source: {html}");
