@@ -1,4 +1,4 @@
-use md4x::plugins::Registry;
+use md4x_core::plugins::Registry;
 
 #[test]
 fn default_registry_has_three_plugins_in_documented_order() {

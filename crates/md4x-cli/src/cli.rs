@@ -2,7 +2,7 @@ use anyhow::{bail, Result};
 use clap::{Parser, ValueEnum};
 use std::path::PathBuf;
 
-use crate::render;
+use md4x_core::render;
 
 #[derive(Parser)]
 #[command(name = "md4x", version, about = "Convert Markdown file(s) to magazine-quality PDF.")]

@@ -1,0 +1,17 @@
+[package]
+name = "md4x"
+version.workspace = true
+edition.workspace = true
+
+[features]
+default = []
+bundle-templates = ["md4x-core/bundle-templates"]
+
+[dependencies]
+md4x-core = { path = "../md4x-core" }
+anyhow.workspace = true
+clap.workspace = true
+
+[[bin]]
+name = "md4x"
+path = "src/main.rs"

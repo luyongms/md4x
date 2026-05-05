@@ -1,4 +1,4 @@
-use md4x::render;
+use md4x_core::render;
 
 #[test]
 fn extract_title_from_h1() {
@@ -197,7 +197,7 @@ fn markdown_to_html_applies_syntax_highlighting() {
 
 #[test]
 fn style_css_reports_unknown_template_helpfully() {
-    let err = md4x::templates::style_css("definitely-not-a-template")
+    let err = md4x_core::templates::style_css("definitely-not-a-template")
         .unwrap_err()
         .to_string();
     assert!(
@@ -208,7 +208,7 @@ fn style_css_reports_unknown_template_helpfully() {
 
 #[test]
 fn available_templates_includes_what_we_ship() {
-    let names = md4x::templates::available();
+    let names = md4x_core::templates::available();
     for expected in ["magazine", "swiss", "stem", "tufte", "newyorker", "brutalist"] {
         assert!(names.contains(&expected), "missing template: {expected}; have: {names:?}");
     }
@@ -216,7 +216,7 @@ fn available_templates_includes_what_we_ship() {
 
 #[test]
 fn chrome_install_help_contains_actionable_guidance() {
-    let help = md4x::render::chrome_install_help();
+    let help = md4x_core::render::chrome_install_help();
     assert!(help.contains("https://www.google.com/chrome/"), "missing download URL: {help}");
     assert!(help.contains("brew install"), "missing Homebrew hint: {help}");
     assert!(help.contains("CHROME="), "missing env-var fallback: {help}");

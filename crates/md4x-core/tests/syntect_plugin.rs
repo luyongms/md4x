@@ -1,4 +1,4 @@
-use md4x::plugins::{syntect::SyntectPlugin, Plugin};
+use md4x_core::plugins::{syntect::SyntectPlugin, Plugin};
 
 #[test]
 fn plugin_has_stable_name() {

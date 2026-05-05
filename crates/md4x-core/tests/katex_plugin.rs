@@ -1,4 +1,4 @@
-use md4x::plugins::{katex::KatexPlugin, Plugin};
+use md4x_core::plugins::{katex::KatexPlugin, Plugin};
 
 #[test]
 fn plugin_has_stable_name() {

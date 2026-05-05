@@ -1,5 +1,7 @@
+mod cli;
+
 fn main() -> std::process::ExitCode {
-    match md4x::cli::run() {
+    match cli::run() {
         Ok(()) => std::process::ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("error: {e:#}");

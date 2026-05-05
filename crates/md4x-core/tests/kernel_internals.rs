@@ -2,7 +2,7 @@
 //! truthy KEEP_WORK parsing, virtual-time-budget scaling. These are
 //! root-cause regression tests for bugs found in v0.1.1.
 
-use md4x::render;
+use md4x_core::render;
 
 // Bug A: paths with special chars must produce a `file://` URL that Chrome
 // accepts. Chrome's parser is stricter than RFC 3986 — it rejects sub-delim

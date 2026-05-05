@@ -1,0 +1,12 @@
+[package]
+name = "md4x-gui"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+md4x-core = { path = "../md4x-core" }
+anyhow.workspace = true
+
+[[bin]]
+name = "md4x-gui"
+path = "src-tauri/main.rs"
