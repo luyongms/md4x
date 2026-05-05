@@ -97,6 +97,7 @@ html, body {
   background: #fff;
   transition: opacity 150ms ease;
 }
+#preview-b { opacity: 0; pointer-events: none; }
 #preview-b { opacity: 0; }
 
 /* Statusbar */

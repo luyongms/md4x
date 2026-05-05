@@ -196,7 +196,9 @@ async function switchTemplate(newTemplate) {
   // Swap visibility with CSS transition
   const active = activeIframe();
   inactive.style.opacity = '1';
+  inactive.style.pointerEvents = '';
   active.style.opacity = '0';
+  active.style.pointerEvents = 'none';
   activeFrame = activeFrame === 'a' ? 'b' : 'a';
   bootstrapped = true;
   setStatus('idle');
