@@ -238,6 +238,14 @@ async function switchTemplate(newTemplate) {
   });
 })();
 
+// ── Trackpad/wheel scroll forwarding ─────────────────────────────────────────
+// WKWebView on macOS does not propagate trackpad scroll events into nested
+// iframes. We intercept them at the preview-pane level and forward via scrollBy.
+document.getElementById('preview-pane').addEventListener('wheel', (e) => {
+  const win = activeIframe().contentWindow;
+  if (win) win.scrollBy({ top: e.deltaY, left: e.deltaX, behavior: 'instant' });
+}, { passive: true });
+
 // ── Init ─────────────────────────────────────────────────────────────────────
 async function init() {
   // Populate template dropdown

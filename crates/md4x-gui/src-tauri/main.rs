@@ -35,10 +35,20 @@ fn render_html(md: String, template: String) -> Result<RenderedDoc, String> {
     // Build full self-contained HTML. Scripts served via md4x:// custom protocol.
     // CSS is inline (small, ~10KB). Scripts are URL references (large, loaded once by browser cache).
     // Frontend uses DOMParser on this HTML but morphdoms only the <body>.
+    // Preview-mode overrides injected after template CSS:
+    // - body margin: @page margins don't apply on screen, so add equivalent.
+    //   Magazine cover uses `width: calc(100%+44mm); margin: -22mm...` which assumes
+    //   a 22mm body margin — so this value must match the @page margin to get full-bleed.
+    // - html overflow: ensure the iframe document is scrollable.
+    const PREVIEW_CSS: &str = "\
+        body { margin: 22mm !important; }\
+        html { overflow-y: auto !important; }\
+    ";
     let html = format!(
         "<!DOCTYPE html>\n<html><head>\n\
          <meta charset=\"utf-8\">\n\
          <style>{css}</style>\n\
+         <style>{PREVIEW_CSS}</style>\n\
          <link rel=\"stylesheet\" href=\"md4x://localhost/katex/katex.min.css\">\n\
          <script src=\"md4x://localhost/katex/katex.min.js\"></script>\n\
          <script src=\"md4x://localhost/mermaid.min.js\"></script>\n\
