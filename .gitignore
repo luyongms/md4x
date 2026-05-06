@@ -6,3 +6,9 @@
 # committed as test baselines and explicitly NOT ignored.
 docs/**/*.pdf
 dist/
+
+# RTK per-user config
+.rtk/
+
+# Tauri build-time generated schemas (regenerated each build)
+crates/md4x-gui/gen/
