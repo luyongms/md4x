@@ -12,3 +12,6 @@ dist/
 
 # Tauri build-time generated schemas (regenerated each build)
 crates/md4x-gui/gen/
+
+# Personal scratch / sample input + output
+/misc/
