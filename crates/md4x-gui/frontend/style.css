@@ -1,0 +1,120 @@
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  height: 100%;
+  overflow: hidden;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  font-size: 13px;
+  color: #1a1a1a;
+  background: #f8f8f8;
+}
+
+/* Toolbar */
+#toolbar {
+  display: flex;
+  align-items: center;
+  height: 38px;
+  padding: 0 12px;
+  background: #f0f0f0;
+  border-bottom: 1px solid #d0d0d0;
+  gap: 8px;
+  flex-shrink: 0;
+}
+#filename {
+  font-weight: 500;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#unsaved { color: #c0392b; font-size: 18px; line-height: 1; }
+#toolbar-right { display: flex; align-items: center; gap: 8px; }
+
+#template-select {
+  padding: 3px 6px;
+  border: 1px solid #bbb;
+  border-radius: 4px;
+  background: #fff;
+  font-size: 12px;
+}
+#export-btn {
+  padding: 4px 12px;
+  border: 1px solid #bbb;
+  border-radius: 4px;
+  background: #fff;
+  cursor: pointer;
+  font-size: 12px;
+}
+#export-btn:hover { background: #e8e8e8; }
+
+/* Panes */
+#panes {
+  display: flex;
+  height: calc(100vh - 38px - 26px);
+}
+
+#editor-pane {
+  flex: 1;
+  min-width: 200px;
+  overflow: hidden;
+  display: flex;
+}
+#editor {
+  flex: 1;
+  padding: 16px;
+  font-family: 'JetBrains Mono', 'Fira Mono', 'Cascadia Code', 'Menlo', monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  border: none;
+  outline: none;
+  resize: none;
+  background: #fafafa;
+  color: #1a1a1a;
+  tab-size: 2;
+}
+
+#resizer {
+  width: 5px;
+  background: #d8d8d8;
+  cursor: col-resize;
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+#resizer:hover, #resizer.dragging { background: #999; }
+
+#preview-pane {
+  flex: 1;
+  min-width: 200px;
+  position: relative;
+  background: #fff;
+}
+#preview-a, #preview-b {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: #fff;
+  transition: opacity 150ms ease;
+}
+#preview-b { opacity: 0; pointer-events: none; }
+
+/* During pane resize, iframes must not capture pointer events, otherwise
+   mouse moves cross into the iframe document and the outer mouseup never
+   fires — leaving the resizer stuck. */
+#panes.dragging iframe { pointer-events: none !important; }
+
+/* Statusbar */
+#statusbar {
+  height: 26px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 0 12px;
+  background: #f0f0f0;
+  border-top: 1px solid #d0d0d0;
+  font-size: 11px;
+  color: #666;
+  flex-shrink: 0;
+}
+#status-state { margin-left: auto; }

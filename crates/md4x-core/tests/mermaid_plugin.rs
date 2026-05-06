@@ -1,4 +1,4 @@
-use md4x::plugins::{mermaid::MermaidPlugin, Plugin};
+use md4x_core::plugins::{mermaid::MermaidPlugin, Plugin};
 
 #[test]
 fn plugin_has_stable_name() {
@@ -8,8 +8,8 @@ fn plugin_has_stable_name() {
 #[test]
 fn ast_rewrite_replaces_mermaid_fence_with_pre_class_mermaid() {
     let md = "Before.\n\n```mermaid\ngraph TD;A-->B\n```\n\nAfter.\n";
-    let html = md4x::plugins::testing::format_with_plugin(&MermaidPlugin, md);
-    assert!(html.contains("<pre class=\"mermaid\">"), "got: {html}");
+    let html = md4x_core::plugins::testing::format_with_plugin(&MermaidPlugin, md);
+    assert!(html.contains("<pre class=\"mermaid\""), "got: {html}");
     // Source is HTML-escaped — `>` becomes `&gt;`.
     assert!(html.contains("graph TD;A--&gt;B"), "got: {html}");
     assert!(html.contains("<p>Before.</p>"), "got: {html}");
@@ -19,7 +19,7 @@ fn ast_rewrite_replaces_mermaid_fence_with_pre_class_mermaid() {
 #[test]
 fn ast_rewrite_leaves_non_mermaid_fence_alone() {
     let md = "```rust\nfn main() {}\n```\n";
-    let html = md4x::plugins::testing::format_with_plugin(&MermaidPlugin, md);
+    let html = md4x_core::plugins::testing::format_with_plugin(&MermaidPlugin, md);
     assert!(!html.contains("class=\"mermaid\""), "got: {html}");
     assert!(html.contains("language-rust"), "got: {html}");
 }

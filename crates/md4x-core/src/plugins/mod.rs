@@ -21,6 +21,15 @@ pub trait Plugin: Send + Sync {
     /// Stable, lowercase, hyphenated identifier (`"mermaid"`, `"katex"`, …).
     fn name(&self) -> &'static str;
 
+    /// Pre-process the raw markdown source before comrak parses it. Returning
+    /// `Some(s)` replaces the input; chained across plugins in registry order.
+    /// Used by KaTeX to collapse multi-line `$$...$$` blocks (which would
+    /// otherwise trigger CommonMark Setext-heading detection on a bare `=`
+    /// line).
+    fn preprocess_markdown(&self, _md: &str) -> Option<String> {
+        None
+    }
+
     /// Configure the markdown parser before parsing.
     fn configure_parse(&self, _opts: &mut comrak::ComrakOptions) {}
 
@@ -66,6 +75,16 @@ impl Registry {
 
     pub fn plugins(&self) -> &[Box<dyn Plugin>] {
         &self.plugins
+    }
+
+    pub fn preprocess_markdown(&self, md: &str) -> String {
+        let mut current = md.to_string();
+        for p in &self.plugins {
+            if let Some(next) = p.preprocess_markdown(&current) {
+                current = next;
+            }
+        }
+        current
     }
 
     pub fn configure_parse(&self, opts: &mut comrak::ComrakOptions) {
@@ -142,6 +161,16 @@ impl Default for Registry {
             Box::new(syntect::SyntectPlugin::new()),
         ])
     }
+}
+
+/// FNV-1a 64-bit hash of `s`, returned as a 16-char hex string.
+pub(crate) fn block_hash(s: &str) -> String {
+    let mut h: u64 = 14_695_981_039_346_656_037;
+    for b in s.bytes() {
+        h ^= b as u64;
+        h = h.wrapping_mul(1_099_511_628_211);
+    }
+    format!("{h:016x}")
 }
 
 /// HTML-escape `s` (`&`, `<`, `>`, `"`, `'`).

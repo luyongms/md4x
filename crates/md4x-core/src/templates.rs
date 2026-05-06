@@ -24,13 +24,13 @@ pub fn bundled() -> bool {
 
 /// Names of templates available in this build.
 pub fn available() -> &'static [&'static str] {
-    &["magazine", "swiss", "stem"]
+    &["magazine", "swiss", "stem", "tufte", "newyorker", "brutalist"]
 }
 
 pub fn cover_html() -> Result<String> {
     #[cfg(feature = "bundle-templates")]
     {
-        Ok(include_str!("../templates/cover.html").to_string())
+        Ok(include_str!("../../../templates/cover.html").to_string())
     }
     #[cfg(not(feature = "bundle-templates"))]
     {
@@ -43,9 +43,12 @@ pub fn style_css(name: &str) -> Result<String> {
     #[cfg(feature = "bundle-templates")]
     {
         match name {
-            "magazine" => Ok(include_str!("../templates/magazine/style.css").to_string()),
-            "swiss" => Ok(include_str!("../templates/swiss/style.css").to_string()),
-            "stem" => Ok(include_str!("../templates/stem/style.css").to_string()),
+            "magazine" => Ok(include_str!("../../../templates/magazine/style.css").to_string()),
+            "swiss" => Ok(include_str!("../../../templates/swiss/style.css").to_string()),
+            "stem" => Ok(include_str!("../../../templates/stem/style.css").to_string()),
+            "tufte" => Ok(include_str!("../../../templates/tufte/style.css").to_string()),
+            "newyorker" => Ok(include_str!("../../../templates/newyorker/style.css").to_string()),
+            "brutalist" => Ok(include_str!("../../../templates/brutalist/style.css").to_string()),
             other => bail!(
                 "template '{}' is not bundled (available: {})",
                 other,

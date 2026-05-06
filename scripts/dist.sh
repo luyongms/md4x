@@ -55,8 +55,8 @@ for arch in "${ARCHES[@]}"; do
     rustup target add "$tgt" >/dev/null
   fi
 
-  echo "==> cargo build --features bundle-templates --target $tgt"
-  cargo build --release --features bundle-templates --target "$tgt"
+  echo "==> cargo build -p md4x --features bundle-templates --target $tgt"
+  cargo build --release -p md4x --features bundle-templates --target "$tgt"
 
   mkdir -p "$staging"
   cp "target/${tgt}/release/md4x" "$staging/md4x"

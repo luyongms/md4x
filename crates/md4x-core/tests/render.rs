@@ -1,4 +1,4 @@
-use md4x::render;
+use md4x_core::render;
 
 #[test]
 fn extract_title_from_h1() {
@@ -33,6 +33,48 @@ fn extract_subtitle_skips_headings_and_thematic_breaks() {
     let md = "# Title\n\n---\n\n## Section\n\nBody line.\n";
     let cv = render::extract_cover_values(md, "x");
     assert_eq!(cv.subtitle, "Body line.");
+}
+
+// Bug D: when the first non-heading "block" is display math, the subtitle was
+// returning the literal `$$` marker. Fix walks the AST and skips math blocks.
+#[test]
+fn extract_subtitle_skips_display_math_blocks() {
+    let md = "# Title\n\n$$\nA = B\n$$\n\nReal subtitle here.\n";
+    let cv = render::extract_cover_values(md, "x");
+    assert_eq!(cv.subtitle, "Real subtitle here.");
+}
+
+// Bug I: same shape for fenced code blocks (mermaid included).
+#[test]
+fn extract_subtitle_skips_fenced_code_blocks() {
+    let md = "# Title\n\n```mermaid\ngraph TD;A-->B\n```\n\nReal subtitle here.\n";
+    let cv = render::extract_cover_values(md, "x");
+    assert_eq!(cv.subtitle, "Real subtitle here.");
+}
+
+#[test]
+fn extract_subtitle_skips_html_blocks() {
+    let md = "# Title\n\n<div class=\"x\">stuff</div>\n\nReal subtitle here.\n";
+    let cv = render::extract_cover_values(md, "x");
+    assert_eq!(cv.subtitle, "Real subtitle here.");
+}
+
+// Bug H: BOM at the start of the file should not hide the H1.
+#[test]
+fn extract_title_strips_bom() {
+    let md = "\u{FEFF}# Title After BOM\n\nbody\n";
+    let cv = render::extract_cover_values(md, "fallback-stem");
+    assert_eq!(cv.title, "Title After BOM");
+}
+
+// Bug E: only the leading bold-label `**Foo:**` should be stripped; later
+// `**bold**` markers in the subtitle stay intact (the cover-text plugin will
+// html-escape them so they render as `**bold**`, but they are not destroyed).
+#[test]
+fn extract_subtitle_strips_only_leading_label_keeps_other_bolds() {
+    let md = "# Title\n\n**Doc:** A demo. **Status:** ready.\n";
+    let cv = render::extract_cover_values(md, "x");
+    assert_eq!(cv.subtitle, "A demo. **Status:** ready.");
 }
 
 #[test]
@@ -98,12 +140,29 @@ fn markdown_to_html_emits_pre_class_mermaid_for_mermaid_fence() {
     let md = "Before.\n\n```mermaid\ngraph TD;A-->B\n```\n\nAfter.\n";
     let html = render::markdown_to_html(md);
     assert!(
-        html.contains("<pre class=\"mermaid\">"),
+        html.contains("<pre class=\"mermaid\""),
         "expected mermaid pre, got: {html}"
     );
     assert!(html.contains("graph TD;A--&gt;B"), "expected escaped source: {html}");
     assert!(html.contains("<p>Before.</p>"), "expected normal markdown: {html}");
     assert!(html.contains("<p>After.</p>"), "expected normal markdown: {html}");
+}
+
+#[test]
+fn markdown_to_html_handles_multiline_display_math_with_bare_equals() {
+    // Bug #2 regression: bare `=` line inside `$$...$$` would become a
+    // Setext H1 underline before math could claim the block.
+    let md = "$$\n\\mathbf{A}\\cdot\\mathbf{x}\n=\n\\mathbf{b}\n$$\n";
+    let html = render::markdown_to_html(md);
+    assert!(!html.contains("<h1"), "math block was promoted to H1: {html}");
+    assert!(
+        html.contains("data-math-style=\"display\""),
+        "expected display-math span: {html}"
+    );
+    assert!(
+        html.contains("\\mathbf{A}\\cdot\\mathbf{x} = \\mathbf{b}"),
+        "math source mangled or dropped: {html}"
+    );
 }
 
 #[test]
@@ -138,7 +197,7 @@ fn markdown_to_html_applies_syntax_highlighting() {
 
 #[test]
 fn style_css_reports_unknown_template_helpfully() {
-    let err = md4x::templates::style_css("definitely-not-a-template")
+    let err = md4x_core::templates::style_css("definitely-not-a-template")
         .unwrap_err()
         .to_string();
     assert!(
@@ -148,16 +207,16 @@ fn style_css_reports_unknown_template_helpfully() {
 }
 
 #[test]
-fn available_templates_includes_the_three_we_ship() {
-    let names = md4x::templates::available();
-    assert!(names.contains(&"magazine"));
-    assert!(names.contains(&"swiss"));
-    assert!(names.contains(&"stem"));
+fn available_templates_includes_what_we_ship() {
+    let names = md4x_core::templates::available();
+    for expected in ["magazine", "swiss", "stem", "tufte", "newyorker", "brutalist"] {
+        assert!(names.contains(&expected), "missing template: {expected}; have: {names:?}");
+    }
 }
 
 #[test]
 fn chrome_install_help_contains_actionable_guidance() {
-    let help = md4x::render::chrome_install_help();
+    let help = md4x_core::render::chrome_install_help();
     assert!(help.contains("https://www.google.com/chrome/"), "missing download URL: {help}");
     assert!(help.contains("brew install"), "missing Homebrew hint: {help}");
     assert!(help.contains("CHROME="), "missing env-var fallback: {help}");
