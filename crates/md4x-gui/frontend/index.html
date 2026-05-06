@@ -11,7 +11,10 @@
     <span id="filename">Untitled</span>
     <span id="unsaved" hidden aria-label="unsaved changes">•</span>
     <div id="toolbar-right">
-      <select id="template-select" aria-label="Template"></select>
+      <button id="template-btn" aria-label="Templates">
+        <span id="template-name">magazine</span>
+        <span class="caret">▾</span>
+      </button>
       <button id="export-btn">Export PDF</button>
     </div>
   </div>
@@ -32,9 +35,52 @@
   </div>
 
   <div id="statusbar">
-    <span id="status-words">0 words</span>
-    <span id="status-lines">0 lines</span>
+    <span id="status-template">magazine</span>
+    <span id="status-counts">0 words</span>
     <span id="status-state">idle</span>
+  </div>
+
+  <!-- Welcome overlay: shown when no file is loaded and editor is empty. -->
+  <div id="welcome" hidden>
+    <div class="welcome-card">
+      <h1>md4x</h1>
+      <p class="tagline">Markdown → magazine-quality PDF</p>
+      <div id="dropzone">
+        <p>Drop a <code>.md</code> file here to open</p>
+        <p class="muted">or</p>
+        <button id="new-draft-btn">+ New draft <span class="kbd">⌘N</span></button>
+      </div>
+      <div class="welcome-recent">
+        <h2>Recent</h2>
+        <ul id="recent-list" class="recent">
+          <li class="muted recent-empty">No recent files yet.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- Template gallery overlay: opens from toolbar template button. -->
+  <div id="gallery" hidden>
+    <div class="gallery-card">
+      <header>
+        <h2>Templates</h2>
+        <button id="gallery-close" aria-label="Close">✕</button>
+      </header>
+      <div id="gallery-grid" class="gallery-grid"></div>
+    </div>
+  </div>
+
+  <!-- Confirm-on-close modal -->
+  <div id="confirm" hidden>
+    <div class="confirm-card">
+      <h3>Unsaved changes</h3>
+      <p>The current document has unsaved changes. Save before closing?</p>
+      <div class="confirm-actions">
+        <button id="confirm-save">Save</button>
+        <button id="confirm-discard">Discard</button>
+        <button id="confirm-cancel">Cancel</button>
+      </div>
+    </div>
   </div>
 
   <script src="app.js"></script>

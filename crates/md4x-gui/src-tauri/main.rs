@@ -127,6 +127,51 @@ async fn open_file(app: tauri::AppHandle) -> Result<Option<OpenedFile>, String> 
 }
 
 #[tauri::command]
+fn close_window(window: tauri::WebviewWindow) -> Result<(), String> {
+    window.close().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn read_file(path: String) -> Result<OpenedFile, String> {
+    let pb = PathBuf::from(&path);
+    let content = std::fs::read_to_string(&pb).map_err(|e| e.to_string())?;
+    Ok(OpenedFile { path: pb.display().to_string(), content })
+}
+
+#[tauri::command]
+fn save_file(path: String, content: String) -> Result<String, String> {
+    let pb = PathBuf::from(&path);
+    std::fs::write(&pb, content.as_bytes()).map_err(|e| e.to_string())?;
+    Ok(pb.display().to_string())
+}
+
+#[derive(Serialize)]
+struct SaveAsResult {
+    path: Option<String>,
+}
+
+#[tauri::command]
+async fn save_file_as(
+    app: tauri::AppHandle,
+    content: String,
+    suggested_name: Option<String>,
+) -> Result<SaveAsResult, String> {
+    use tauri_plugin_dialog::DialogExt;
+    let (tx, rx) = std::sync::mpsc::channel();
+    let mut builder = app.dialog().file().add_filter("Markdown", &["md", "markdown", "mdx"]);
+    if let Some(name) = suggested_name {
+        builder = builder.set_file_name(&name);
+    }
+    builder.save_file(move |path| { let _ = tx.send(path); });
+    let Some(path) = rx.recv().map_err(|e| e.to_string())? else {
+        return Ok(SaveAsResult { path: None });
+    };
+    let pb: PathBuf = path.into_path().map_err(|e| e.to_string())?;
+    std::fs::write(&pb, content.as_bytes()).map_err(|e| e.to_string())?;
+    Ok(SaveAsResult { path: Some(pb.display().to_string()) })
+}
+
+#[tauri::command]
 async fn export_pdf(app: tauri::AppHandle, md: String, template: String) -> Result<String, String> {
     use tauri_plugin_dialog::DialogExt;
 
@@ -202,16 +247,28 @@ fn main() {
                 .body(body)
                 .unwrap()
         })
-        .invoke_handler(tauri::generate_handler![list_templates, render_html, export_pdf, open_file])
+        .invoke_handler(tauri::generate_handler![
+            list_templates, render_html, export_pdf, open_file,
+            read_file, save_file, save_file_as, close_window,
+        ])
         .setup(|app| {
             use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
 
             // Custom File menu items.
+            let new_item = MenuItemBuilder::with_id("new", "New")
+                .accelerator("CmdOrCtrl+N")
+                .build(app)?;
             let open_item = MenuItemBuilder::with_id("open", "Open…")
                 .accelerator("CmdOrCtrl+O")
                 .build(app)?;
-            let export_item = MenuItemBuilder::with_id("export", "Export PDF…")
+            let save_item = MenuItemBuilder::with_id("save", "Save")
                 .accelerator("CmdOrCtrl+S")
+                .build(app)?;
+            let save_as_item = MenuItemBuilder::with_id("save_as", "Save As…")
+                .accelerator("CmdOrCtrl+Shift+S")
+                .build(app)?;
+            let export_item = MenuItemBuilder::with_id("export", "Export PDF…")
+                .accelerator("CmdOrCtrl+E")
                 .build(app)?;
 
             // App submenu (macOS): About / Services / Hide / Quit etc.
@@ -228,7 +285,11 @@ fn main() {
                 .build()?;
 
             let file_submenu = SubmenuBuilder::new(app, "File")
+                .item(&new_item)
                 .item(&open_item)
+                .separator()
+                .item(&save_item)
+                .item(&save_as_item)
                 .separator()
                 .item(&export_item)
                 .separator()
@@ -263,14 +324,66 @@ fn main() {
                 use tauri::Manager;
                 let id = event.id().0.as_str();
                 let js: &str = match id {
-                    "open"   => "window.openFile && window.openFile();",
-                    "export" => "document.getElementById(\"export-btn\").click();",
+                    "new"     => "window.newDraft && window.newDraft();",
+                    "open"    => "window.openFile && window.openFile();",
+                    "save"    => "window.saveFile && window.saveFile();",
+                    "save_as" => "window.saveFileAs && window.saveFileAs();",
+                    "export"  => "document.getElementById(\"export-btn\").click();",
                     _ => return,
                 };
                 if let Some(w) = app.get_webview_window("main") {
                     let _ = w.eval(js);
                 }
             });
+            // Close-requested → ask JS whether the doc is dirty; JS will
+            // either let the close proceed or invoke a confirm dialog and
+            // call invoke('close_window') on user choice.
+            // DragDrop → open the dropped .md file via JS openFromPath().
+            use tauri::Manager;
+            if let Some(w) = app.get_webview_window("main") {
+                let w_for_eval = w.clone();
+                w.on_window_event(move |event| match event {
+                    tauri::WindowEvent::CloseRequested { api, .. } => {
+                        api.prevent_close();
+                        let _ = w_for_eval.eval(
+                            "window.confirmClose && window.confirmClose();",
+                        );
+                    }
+                    tauri::WindowEvent::DragDrop(dd) => {
+                        if let tauri::DragDropEvent::Drop { paths, .. } = dd {
+                            let _ = w_for_eval.eval(
+                                "document.body.classList.remove('window-dragover');",
+                            );
+                            if let Some(p) = paths.first() {
+                                let path_str = p.to_string_lossy().to_string();
+                                let lower = path_str.to_lowercase();
+                                if lower.ends_with(".md")
+                                    || lower.ends_with(".markdown")
+                                    || lower.ends_with(".mdx")
+                                {
+                                    let escaped = path_str
+                                        .replace('\\', "\\\\")
+                                        .replace('"', "\\\"");
+                                    let js = format!(
+                                        "window.openFromPath && window.openFromPath(\"{escaped}\");"
+                                    );
+                                    let _ = w_for_eval.eval(&js);
+                                }
+                            }
+                        } else if let tauri::DragDropEvent::Leave = dd {
+                            let _ = w_for_eval.eval(
+                                "document.body.classList.remove('window-dragover');",
+                            );
+                        } else {
+                            // Enter / Over: paint the drag-over outline.
+                            let _ = w_for_eval.eval(
+                                "document.body.classList.add('window-dragover');",
+                            );
+                        }
+                    }
+                    _ => {}
+                });
+            }
             Ok(())
         })
         .run(tauri::generate_context!())

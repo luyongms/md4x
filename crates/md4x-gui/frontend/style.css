@@ -1,5 +1,10 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+/* The UA [hidden] rule has lower specificity than our flex/grid layouts, so
+   setting `el.hidden = true` from JS doesn't hide #welcome / #gallery /
+   #confirm. Force it. */
+[hidden] { display: none !important; }
+
 html, body {
   height: 100%;
   overflow: hidden;
@@ -8,6 +13,8 @@ html, body {
   color: #1a1a1a;
   background: #f8f8f8;
 }
+
+button { font: inherit; cursor: pointer; }
 
 /* Toolbar */
 #toolbar {
@@ -30,22 +37,30 @@ html, body {
 #unsaved { color: #c0392b; font-size: 18px; line-height: 1; }
 #toolbar-right { display: flex; align-items: center; gap: 8px; }
 
-#template-select {
-  padding: 3px 6px;
+#template-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
   border: 1px solid #bbb;
   border-radius: 4px;
   background: #fff;
   font-size: 12px;
+  color: #1a1a1a;
 }
+#template-btn:hover { background: #f5f5f5; }
+#template-btn .caret { color: #888; font-size: 9px; }
+
 #export-btn {
   padding: 4px 12px;
   border: 1px solid #bbb;
   border-radius: 4px;
   background: #fff;
-  cursor: pointer;
   font-size: 12px;
+  color: #1a1a1a;
 }
 #export-btn:hover { background: #e8e8e8; }
+#export-btn:disabled { opacity: 0.5; cursor: default; }
 
 /* Panes */
 #panes {
@@ -118,3 +133,216 @@ html, body {
   flex-shrink: 0;
 }
 #status-state { margin-left: auto; }
+
+/* ── Welcome overlay ──────────────────────────────────────────────────── */
+#welcome {
+  position: fixed;
+  inset: 38px 0 26px 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f8f8f8;
+  z-index: 100;
+  overflow: auto;
+}
+.welcome-card {
+  width: min(560px, 90vw);
+  padding: 24px;
+  text-align: center;
+}
+.welcome-card h1 {
+  font-size: 36px;
+  font-weight: 700;
+  margin-bottom: 6px;
+  letter-spacing: -0.02em;
+}
+.welcome-card .tagline {
+  color: #666;
+  margin-bottom: 28px;
+  font-size: 14px;
+}
+#dropzone {
+  border: 2px dashed #0066cc;
+  border-radius: 12px;
+  padding: 36px 20px;
+  background: #fafafa;
+  margin-bottom: 28px;
+  transition: background 0.15s, border-color 0.15s;
+}
+#dropzone.dragover {
+  background: #e6f0ff;
+  border-color: #003d99;
+}
+#dropzone p { margin: 4px 0; font-size: 14px; }
+#dropzone .muted { color: #999; font-size: 11px; margin: 6px 0; }
+#dropzone code {
+  font-family: 'JetBrains Mono', 'Menlo', monospace;
+  color: #0066cc;
+  background: #eef;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 12px;
+}
+#new-draft-btn {
+  margin-top: 8px;
+  padding: 6px 16px;
+  background: #0066cc;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+}
+#new-draft-btn:hover { background: #0055aa; }
+.kbd {
+  font-family: 'JetBrains Mono', 'Menlo', monospace;
+  font-size: 10px;
+  opacity: 0.85;
+  margin-left: 4px;
+}
+
+.welcome-recent { text-align: left; margin-top: 12px; }
+.welcome-recent h2 {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: #666;
+  margin-bottom: 8px;
+}
+.recent {
+  list-style: none;
+  border-top: 1px solid #e5e5ea;
+}
+.recent li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 4px;
+  border-bottom: 1px solid #e5e5ea;
+  font-size: 12px;
+}
+.recent li.recent-empty {
+  color: #999;
+  justify-content: center;
+}
+.recent .recent-name {
+  color: #0066cc;
+  cursor: pointer;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.recent .recent-name:hover { text-decoration: underline; }
+.recent .recent-path {
+  color: #999;
+  font-size: 11px;
+  margin-left: 12px;
+  flex-shrink: 0;
+}
+
+/* ── Template gallery overlay ──────────────────────────────────────────── */
+#gallery {
+  position: fixed;
+  inset: 0;
+  background: rgba(20, 20, 30, 0.4);
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.gallery-card {
+  width: min(820px, 92vw);
+  max-height: 86vh;
+  background: #fff;
+  border-radius: 10px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.25);
+  display: flex;
+  flex-direction: column;
+}
+.gallery-card header {
+  display: flex;
+  align-items: center;
+  padding: 14px 18px;
+  border-bottom: 1px solid #e5e5ea;
+}
+.gallery-card h2 {
+  flex: 1;
+  font-size: 14px;
+  font-weight: 600;
+}
+#gallery-close {
+  width: 28px; height: 28px;
+  border: none; background: transparent;
+  font-size: 14px; color: #666;
+  border-radius: 4px;
+}
+#gallery-close:hover { background: #f0f0f0; color: #000; }
+.gallery-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+  padding: 18px;
+  overflow: auto;
+}
+.gallery-card-tile {
+  border: 2px solid #e5e5ea;
+  border-radius: 8px;
+  background: #fff;
+  cursor: pointer;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  transition: border-color 0.12s, transform 0.12s;
+}
+.gallery-card-tile:hover {
+  border-color: #0066cc;
+  transform: translateY(-1px);
+}
+.gallery-card-tile.active {
+  border-color: #0066cc;
+  box-shadow: 0 0 0 2px rgba(0, 102, 204, 0.25);
+}
+.gallery-card-tile svg { display: block; width: 100%; height: auto; background: #fbfbf7; }
+.gallery-card-tile .name {
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  border-top: 1px solid #f0f0f0;
+}
+
+/* ── Confirm dialog ────────────────────────────────────────────────────── */
+#confirm {
+  position: fixed; inset: 0;
+  background: rgba(20, 20, 30, 0.4);
+  z-index: 300;
+  display: flex; align-items: center; justify-content: center;
+}
+.confirm-card {
+  width: min(380px, 90vw);
+  background: #fff;
+  border-radius: 8px;
+  padding: 18px 20px 14px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.25);
+}
+.confirm-card h3 { font-size: 14px; font-weight: 600; margin-bottom: 6px; }
+.confirm-card p { font-size: 12px; color: #555; margin-bottom: 14px; }
+.confirm-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.confirm-actions button {
+  padding: 5px 12px;
+  border: 1px solid #c7c7cc;
+  border-radius: 4px;
+  background: #fff;
+  font-size: 12px;
+}
+.confirm-actions button:hover { background: #f5f5f5; }
+#confirm-save {
+  background: #0066cc;
+  color: #fff;
+  border-color: #0066cc;
+}
+#confirm-save:hover { background: #0055aa; }
+
+/* When dragging a file over the entire window outside the welcome state */
+body.window-dragover #panes { outline: 3px solid #0066cc; outline-offset: -3px; }
