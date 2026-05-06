@@ -72,8 +72,6 @@ fn render_html(md: String, template: String) -> Result<RenderedDoc, String> {
         figure {{ text-align: center !important; margin: 1.5em auto !important; }}\
         figure > img {{ margin-left: auto !important; margin-right: auto !important; }}\
         figcaption {{ text-align: center !important; }}\
-        body > h1:not(:first-of-type) {{ margin-top: 60px !important; padding-top: 32px !important; border-top: 2px dashed #c0c0c0 !important; position: relative !important; }}\
-        body > h1:not(:first-of-type)::before {{ content: '— page break —' !important; position: absolute !important; top: -10px !important; left: 50% !important; transform: translateX(-50%) !important; background: #ffffff !important; padding: 0 12px !important; font: 600 9px/1 -apple-system,system-ui,sans-serif !important; letter-spacing: 0.15em !important; text-transform: uppercase !important; color: #999 !important; }}\
         span[data-math-style=\"display\"] {{ display: block !important; text-align: center !important; margin: 1em 0 !important; }}\
         pre.mermaid {{ max-width: 100% !important; text-align: center !important; }}\
         pre.mermaid > svg {{ max-width: 100% !important; height: auto !important; width: auto !important; display: block !important; margin-left: auto !important; margin-right: auto !important; }}\

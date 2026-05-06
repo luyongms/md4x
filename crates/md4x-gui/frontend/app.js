@@ -165,6 +165,15 @@ function attachIframeHandlers(iframe) {
     win.scrollBy(e.deltaX, e.deltaY);
   }, { passive: true, capture: true });
   fitPage(iframe);
+  // Watch the iframe's <body> for size changes and re-trim tail-space once
+  // it settles. Using the iframe-internal ResizeObserver (not the parent's)
+  // means we observe in the iframe's own task queue, and the *debounced*
+  // trim avoids the rapid-margin-bottom-change pattern that previously
+  // caused WKWebView to drop the iframe's scroll layer on paste.
+  if (win.ResizeObserver) {
+    new win.ResizeObserver(() => scheduleTailTrim(iframe))
+      .observe(doc.body);
+  }
 }
 
 // ── Page fit (A4-zoom-to-fit) ───────────────────────────────────────────────
@@ -190,14 +199,44 @@ function fitPage(iframe) {
   // With transform-origin: top left, body's visual-left == layout-left, so
   // the centering math falls out of the natural margin: 0 auto + html padding
   // behavior: when scale = avail/target, left-gray = right-gray = 24px.
-  //
-  // NOTE: transform: scale doesn't shrink the layout box, so the iframe has
-  // some empty gray "tail" below the visual page bottom (= body.height × (1
-  // - scale)). Earlier attempt to compensate via negative margin-bottom
-  // caused WKWebView to drop the scroll layer on rapid height changes after
-  // paste — the tail-space is the lesser of two evils until we find a
-  // non-WebKit-hostile compensation.
   doc.body.style.transform = `scale(${scale})`;
+  // Layout box stays at natural height after transform: scale, so the iframe
+  // would scroll past the visual page bottom into empty gray "tail-space".
+  // We compensate via a debounced negative margin-bottom — debounced because
+  // mermaid/KaTeX render asynchronously and rapid margin changes during the
+  // render storm break WKWebView's scroll layer.
+  scheduleTailTrim(iframe);
+}
+
+// Per-iframe debounce timer for tail-space compensation.
+const tailTrimTimers = new WeakMap();
+const TAIL_TRIM_DELAY_MS = 250;
+
+function scheduleTailTrim(iframe) {
+  const prev = tailTrimTimers.get(iframe);
+  if (prev) clearTimeout(prev);
+  const timer = setTimeout(() => {
+    tailTrimTimers.delete(iframe);
+    trimTail(iframe);
+  }, TAIL_TRIM_DELAY_MS);
+  tailTrimTimers.set(iframe, timer);
+}
+
+function trimTail(iframe) {
+  const doc = iframe.contentDocument;
+  if (!doc || !doc.body) return;
+  const targetPx = A4_WIDTH_MM * PX_PER_MM;
+  const avail    = iframe.clientWidth - PAGE_PAD_PX;
+  if (avail <= 0) return;
+  const scale = Math.min(1, Math.max(0.25, avail / targetPx));
+  // body.offsetHeight excludes margin, so this is the unscaled content box.
+  const overhang = Math.max(0, doc.body.offsetHeight * (1 - scale));
+  // Only update if the value actually changed by more than ~1px — every
+  // margin-bottom write is a layout pass that WKWebView has been touchy
+  // about, so we deliberately avoid no-op writes.
+  const current = -parseFloat(doc.body.style.marginBottom || '0');
+  if (Math.abs(current - overhang) < 1) return;
+  doc.body.style.setProperty('margin-bottom', `-${overhang}px`, 'important');
 }
 
 function fitAll() {
