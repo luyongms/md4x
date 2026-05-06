@@ -22,8 +22,12 @@
     </div>
     <div id="resizer" role="separator" aria-orientation="vertical"></div>
     <div id="preview-pane">
-      <iframe id="preview-a" title="Preview" sandbox="allow-scripts allow-same-origin"></iframe>
-      <iframe id="preview-b" title="Preview" sandbox="allow-scripts allow-same-origin"></iframe>
+      <!-- onwheel="" registers the iframe in WebKit's wheel-event region at
+           initial layout. Without it, WKWebView drops wheel events to the
+           iframe until something forces a region recompute (resize, srcdoc
+           reassignment). See WebKit bug #124139 / #142807. -->
+      <iframe id="preview-a" title="Preview" onwheel="" sandbox="allow-scripts allow-same-origin"></iframe>
+      <iframe id="preview-b" title="Preview" onwheel="" sandbox="allow-scripts allow-same-origin"></iframe>
     </div>
   </div>
 

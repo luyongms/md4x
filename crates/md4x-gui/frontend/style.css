@@ -98,7 +98,11 @@ html, body {
   transition: opacity 150ms ease;
 }
 #preview-b { opacity: 0; pointer-events: none; }
-#preview-b { opacity: 0; }
+
+/* During pane resize, iframes must not capture pointer events, otherwise
+   mouse moves cross into the iframe document and the outer mouseup never
+   fires — leaving the resizer stuck. */
+#panes.dragging iframe { pointer-events: none !important; }
 
 /* Statusbar */
 #statusbar {
