@@ -101,7 +101,18 @@ fn rewrite<'a>(node: &'a AstNode<'a>) {
         };
         if let Some(src) = mermaid_src {
             let hash = super::block_hash(&src);
-            let html = format!("<pre class=\"mermaid\" data-md4x-hash=\"{hash}\">{}</pre>", html_escape(&src));
+            // Preserve the AST node's source position on the rewritten HTML
+            // so the GUI's block-level scroll sync (which keys off
+            // data-sourcepos) finds this block at its correct source line.
+            let sp = data.sourcepos;
+            let pos = format!(
+                "{}:{}-{}:{}",
+                sp.start.line, sp.start.column, sp.end.line, sp.end.column
+            );
+            let html = format!(
+                "<pre class=\"mermaid\" data-md4x-hash=\"{hash}\" data-sourcepos=\"{pos}\">{}</pre>",
+                html_escape(&src)
+            );
             data.value = NodeValue::HtmlBlock(NodeHtmlBlock { block_type: 0, literal: html });
             continue;
         }

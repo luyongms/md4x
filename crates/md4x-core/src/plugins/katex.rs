@@ -19,13 +19,144 @@ const HEAD_HTML: &str = "\
 <link rel=\"stylesheet\" href=\"katex/katex.min.css\">\n\
 <script src=\"katex/katex.min.js\"></script>\n";
 
-const INIT_JS: &str = "\
-document.querySelectorAll('span[data-math-style=\"inline\"]').forEach(function(el){\
-  try { katex.render(el.textContent, el, {throwOnError:false, displayMode:false}); } catch(e){}\
-});\
-document.querySelectorAll('span[data-math-style=\"display\"]').forEach(function(el){\
-  try { katex.render(el.textContent, el, {throwOnError:false, displayMode:true}); } catch(e){}\
-});";
+// Default KaTeX options + macros, shared with the post-morphdom render path
+// in app.js. Stored on window.MD4X_KATEX_OPTIONS. Generated in JS so the
+// `\cA`-`\cZ` and family don't need 100 hand-typed lines.
+//
+// Scope: GENERAL math notation only — things you'd see in any math book.
+// Document-specific shortcuts (crypto adversaries, pseudocode commands,
+// per-author renames) belong in `<filename>.macros.json` next to the source.
+const INIT_JS: &str = r#"
+(function(){
+  var macros = {};
+  // Programmatic letter-prefix families:
+  //   \cA-\cZ    -> \mathcal{A}-\mathcal{Z}
+  //   \bA-\bZ    -> \mathbf{A}-\mathbf{Z}
+  //   \fA-\fZ    -> \mathfrak{A}-\mathfrak{Z}
+  //   \bbA-\bbZ  -> \mathbb{A}-\mathbb{Z}
+  //   \frakA-\frakZ -> \mathfrak{A}-\mathfrak{Z}
+  for (var i = 0; i < 26; i++) {
+    var L = String.fromCharCode(65 + i);
+    macros['\\c' + L]    = '\\mathcal{'  + L + '}';
+    macros['\\b' + L]    = '\\mathbf{'   + L + '}';
+    macros['\\f' + L]    = '\\mathfrak{' + L + '}';
+    macros['\\bb' + L]   = '\\mathbb{'   + L + '}';
+    macros['\\frak' + L] = '\\mathfrak{' + L + '}';
+  }
+  // Common single-letter blackboard shorthands (general math).
+  Object.assign(macros, {
+    '\\NN': '\\mathbb{N}', '\\ZZ': '\\mathbb{Z}', '\\Z':  '\\mathbb{Z}',
+    '\\QQ': '\\mathbb{Q}', '\\Q':  '\\mathbb{Q}',
+    '\\RR': '\\mathbb{R}', '\\R':  '\\mathbb{R}',
+    '\\CC': '\\mathbb{C}', '\\C':  '\\mathbb{C}',
+    '\\FF': '\\mathbb{F}', '\\F':  '\\mathbb{F}',
+    '\\GG': '\\mathbb{G}', '\\HH': '\\mathbb{H}',
+    '\\AA': '\\mathbb{A}', '\\BB': '\\mathbb{B}', '\\DD': '\\mathbb{D}',
+    '\\PP': '\\mathbb{P}', '\\EE': '\\mathbb{E}',
+    '\\KK': '\\mathbb{K}', '\\TT': '\\mathbb{T}',
+    '\\1':  '\\mathbf{1}',
+  });
+  // Math operators / shorthand (general).
+  Object.assign(macros, {
+    '\\defeq':   '\\stackrel{\\mathrm{def}}{=}',
+    '\\eqdef':   '\\stackrel{\\mathrm{def}}{=}',
+    '\\divides': '\\mid',
+    '\\nmid':    '\\not\\mid',
+    '\\setm':    '\\setminus',
+    '\\sample':  '\\stackrel{\\$}{\\leftarrow}',
+    '\\To':      '\\Rightarrow',
+    '\\iff':     '\\Leftrightarrow',
+    '\\im':      '\\operatorname{im}',
+    '\\ker':     '\\operatorname{ker}',
+    '\\rank':    '\\operatorname{rank}',
+    '\\span':    '\\operatorname{span}',
+    '\\lcm':     '\\operatorname{lcm}',
+    '\\Hom':     '\\operatorname{Hom}',
+    '\\End':     '\\operatorname{End}',
+    '\\Aut':     '\\operatorname{Aut}',
+    '\\Res':     '\\operatorname{Res}',
+    '\\diag':    '\\operatorname{diag}',
+    '\\sgn':     '\\operatorname{sgn}',
+    '\\abs':     '\\#',
+    '\\bigO':    '\\mathcal{O}',
+    '\\smallO':  '\\mathit{o}',
+    '\\cl':      '[#1]',
+  });
+  // Probability / complexity (general).
+  Object.assign(macros, {
+    '\\negl':   '\\mathsf{negl}',
+    '\\poly':   '\\mathsf{poly}',
+    '\\pr':     '\\Pr\\!\\left[#1\\right]',
+    '\\Expect': '\\mathbb{E}',
+  });
+  // Snapshot the defaults BEFORE merging user macros, so a later macros.json
+  // edit can be applied cleanly without losing builtins.
+  window.MD4X_DEFAULT_MACROS = Object.assign({}, macros);
+  // Per-document overrides: render_html injects `window.MD4X_USER_MACROS`
+  // BEFORE this script runs, loaded from `<file>.macros.json` next to the
+  // markdown source. User entries win over our defaults.
+  if (window.MD4X_USER_MACROS && typeof window.MD4X_USER_MACROS === 'object') {
+    Object.assign(macros, window.MD4X_USER_MACROS);
+  }
+  window.MD4X_KATEX_OPTIONS = {
+    throwOnError: false,
+    strict: 'ignore',
+    macros: macros,
+  };
+  // Live-update path: app.js calls this when `<file>.macros.json` changes
+  // without reloading the iframe. Rebuilds MD4X_KATEX_OPTIONS.macros from
+  // the snapshot + the new user object.
+  window.md4xUpdateMacros = function(userMacros) {
+    var fresh = Object.assign({}, window.MD4X_DEFAULT_MACROS, userMacros || {});
+    window.MD4X_KATEX_OPTIONS.macros = fresh;
+  };
+
+  // Sanitize math source for KaTeX. Two specific patterns crash the
+  // entire \[...\] block in our KaTeX bundle even when individually they
+  // could be parsed:
+  //   1. \text{\underline{X}}  — KaTeX's text mode doesn't allow
+  //      \underline (math-mode only). Swap to \underline{\text{X}}.
+  //   2. \def\X{body} / \newcommand{\X}{body} — KaTeX *supports* these
+  //      but if the body references an undefined macro, the WHOLE math
+  //      block fails. Strip them; the user's macros.json is the right
+  //      place for definitions.
+  window.md4xSanitizeMath = function(s) {
+    if (typeof s !== 'string') return s;
+    // Strip TeX-style macro definitions. Handle one level of brace
+    // nesting in the body. Repeat until stable to catch chained defs.
+    for (var n = 0; n < 6; n++) {
+      var prev = s;
+      // \def\X{body}, \def\X#1#2{body}, \edef \xdef \gdef variants
+      s = s.replace(/\\(?:def|edef|xdef|gdef)\\[a-zA-Z]+(?:#\d)*\s*\{(?:[^{}]|\{[^{}]*\})*\}/g, '');
+      // \newcommand{\X}{body}, \providecommand etc., with optional [arity]
+      s = s.replace(/\\(?:newcommand|providecommand|renewcommand)\s*\{?\\[a-zA-Z]+\}?(?:\s*\[\d+\])?(?:\s*\[[^\]]*\])?\s*\{(?:[^{}]|\{[^{}]*\})*\}/g, '');
+      if (s === prev) break;
+    }
+    // Swap \text{\underline{X}} → \underline{\text{X}} (text mode has
+    // no \underline; the inverse nesting puts \underline back in math
+    // mode where it works).
+    s = s.replace(/\\text\{\\underline\{([^}]*)\}\}/g, '\\underline{\\text{$1}}');
+    return s;
+  };
+})();
+function md4xKatexOpts(display){
+  return Object.assign({displayMode:!!display}, window.MD4X_KATEX_OPTIONS);
+}
+// Store the original math source on each span before rendering so
+// app.js can re-render the same block with updated macros later
+// (KaTeX replaces the span's contents on render — source would be lost).
+document.querySelectorAll('span[data-math-style]').forEach(function(el){
+  if (!el.dataset.mathSrc) el.dataset.mathSrc = el.textContent;
+});
+document.querySelectorAll('span[data-math-style="inline"]').forEach(function(el){
+  var src = el.dataset.mathSrc || el.textContent;
+  try { katex.render(window.md4xSanitizeMath(src), el, md4xKatexOpts(false)); } catch(e){}
+});
+document.querySelectorAll('span[data-math-style="display"]').forEach(function(el){
+  var src = el.dataset.mathSrc || el.textContent;
+  try { katex.render(window.md4xSanitizeMath(src), el, md4xKatexOpts(true)); } catch(e){}
+});
+"#;
 
 pub struct KatexPlugin;
 
@@ -35,7 +166,15 @@ impl Plugin for KatexPlugin {
     }
 
     fn preprocess_markdown(&self, md: &str) -> Option<String> {
-        Some(collapse_display_math_blocks(md))
+        // Three passes:
+        //   (1) `\[...\]` → single-line `$$...$$` (char-stream, handles inline
+        //       openers/closers like `\[\begin{aligned}` ... `\end{aligned}\]*`)
+        //   (2) `\(...\)` inline → `$...$`
+        //   (3) collapse multi-line user-written `$$...$$` blocks to one line
+        //       so comrak's inline-level math_dollars extension claims them.
+        let s = rewrite_latex_brackets(md);
+        let s = rewrite_inline_latex_delims(&s);
+        Some(collapse_display_math_blocks(&s))
     }
 
     fn configure_parse(&self, opts: &mut comrak::ComrakOptions) {
@@ -80,10 +219,10 @@ impl Plugin for KatexPlugin {
 ///
 /// gets parsed by CommonMark's Setext rule as an H1 (the bare `=` line is a
 /// level-1 underline), shredding the math block before math processing runs.
-/// Collapsing to `$$ \mathbf{A}\cdot\mathbf{x} = \mathbf{b} $$` on a single
-/// line lets comrak's math extension claim it.
 ///
 /// Fenced code blocks are skipped — `$$` inside ```` ``` ```` is left alone.
+/// `\[ ... \]` LaTeX2e display math is handled by [`rewrite_latex_brackets`]
+/// in an earlier pass.
 pub fn collapse_display_math_blocks(md: &str) -> String {
     let mut out = String::with_capacity(md.len());
     let mut in_code_fence = false;
@@ -93,7 +232,7 @@ pub fn collapse_display_math_blocks(md: &str) -> String {
     for line in md.lines() {
         let trimmed_start = line.trim_start();
 
-        if !in_math && trimmed_start.starts_with("```") {
+        if !in_math && (trimmed_start.starts_with("```") || trimmed_start.starts_with("~~~")) {
             in_code_fence = !in_code_fence;
             out.push_str(line);
             out.push('\n');
@@ -128,9 +267,137 @@ pub fn collapse_display_math_blocks(md: &str) -> String {
         }
     }
 
-    // Unclosed math block — emit raw rather than dropping content.
     if in_math {
         out.push_str(&buf);
+    }
+    out
+}
+
+/// Rewrite display LaTeX2e math `\[ ... \]` → single-line `$$ ... $$`.
+///
+/// Char-stream parser. Tolerates content before/after the delimiters on the
+/// same line (e.g. `\[\begin{aligned} ... \end{aligned}\]*` or
+/// `\[ x = 1 \]`). Multi-line content is joined with spaces so the math
+/// fits on one line for comrak's inline-level math_dollars extension.
+///
+/// Code-fence-aware: text inside ```` ``` ```` / `~~~` blocks is untouched.
+/// Inside math, the `\]` closer is detected without escape checks (LaTeX
+/// math has no `\\]` escape). Outside math, `\\[` (escaped backslash + `[`)
+/// is left alone.
+pub fn rewrite_latex_brackets(md: &str) -> String {
+    let mut out = String::with_capacity(md.len());
+    let mut in_code_fence = false;
+    let mut in_math = false;
+    let mut math_buf = String::new();
+
+    for line in md.lines() {
+        // Code fence tracking only when not in a math block — math can't
+        // span across a code fence in any sane document.
+        if !in_math {
+            let trimmed = line.trim_start();
+            if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
+                in_code_fence = !in_code_fence;
+                out.push_str(line);
+                out.push('\n');
+                continue;
+            }
+            if in_code_fence {
+                out.push_str(line);
+                out.push('\n');
+                continue;
+            }
+        }
+
+        let chars: Vec<char> = line.chars().collect();
+        let mut i = 0;
+        while i < chars.len() {
+            let c = chars[i];
+            let next = chars.get(i + 1).copied();
+            let prev = if i == 0 { '\0' } else { chars[i - 1] };
+
+            if in_math {
+                if c == '\\' && next == Some(']') {
+                    out.push_str("$$ ");
+                    out.push_str(math_buf.trim());
+                    out.push_str(" $$");
+                    math_buf.clear();
+                    in_math = false;
+                    i += 2;
+                    continue;
+                }
+                math_buf.push(c);
+                i += 1;
+                continue;
+            }
+
+            if c == '\\' && next == Some('[') && prev != '\\' {
+                in_math = true;
+                math_buf.clear();
+                i += 2;
+                continue;
+            }
+
+            out.push(c);
+            i += 1;
+        }
+
+        if in_math {
+            // Preserve newline as a space so multi-line math joins cleanly.
+            math_buf.push(' ');
+        } else {
+            out.push('\n');
+        }
+    }
+
+    if in_math {
+        // Unclosed — restore the opener so content survives to the user.
+        out.push_str("\\[");
+        out.push_str(&math_buf);
+    }
+
+    out
+}
+
+/// Rewrite inline LaTeX2e math delimiters `\(...\)` → `$...$` so comrak's
+/// math extension claims them. Code-fence-aware. Display `\[...\]` is
+/// handled by [`rewrite_latex_brackets`].
+pub fn rewrite_inline_latex_delims(md: &str) -> String {
+    let mut out = String::with_capacity(md.len());
+    let mut in_code_fence = false;
+    for line in md.lines() {
+        let trimmed_start = line.trim_start();
+        if trimmed_start.starts_with("```") {
+            in_code_fence = !in_code_fence;
+            out.push_str(line);
+            out.push('\n');
+            continue;
+        }
+        if in_code_fence {
+            out.push_str(line);
+            out.push('\n');
+            continue;
+        }
+        // Two-char delimiter swap; backslash-escaped variants `\\(` are
+        // left alone by checking the preceding char. Char-iterated so
+        // multi-byte UTF-8 stays intact.
+        let chars: Vec<char> = line.chars().collect();
+        let mut buf = String::with_capacity(line.len());
+        let mut i = 0;
+        while i < chars.len() {
+            let prev = if i == 0 { '\0' } else { chars[i - 1] };
+            if chars[i] == '\\' && i + 1 < chars.len() && prev != '\\' {
+                let next = chars[i + 1];
+                if next == '(' || next == ')' {
+                    buf.push('$');
+                    i += 2;
+                    continue;
+                }
+            }
+            buf.push(chars[i]);
+            i += 1;
+        }
+        out.push_str(&buf);
+        out.push('\n');
     }
     out
 }

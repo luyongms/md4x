@@ -211,6 +211,17 @@ pub fn markdown_to_html_with(md: &str, registry: &Registry) -> String {
     options.extension.autolink = true;
     options.extension.superscript = true;
     options.render.unsafe_ = true;
+    // CommonMark default: a single newline is a soft-break (rendered as a
+    // space, paragraph flows naturally). Two newlines = paragraph break.
+    // Authors who want a hard break in a paragraph use a blank line or two
+    // trailing spaces. Earlier we tried `hardbreaks = true` to match the
+    // "type two lines, see two lines" expectation, but that meant any
+    // continuation line (e.g. indented bullet wrapping) became a <br> in
+    // the preview, which doesn't reflow when the pane widens.
+    // Emit `data-sourcepos="<startLine>:<col>-<endLine>:<col>"` on each
+    // rendered block. The GUI uses these for block-level scroll sync:
+    // editor source line ↔ rendered preview block.
+    options.render.sourcepos = true;
     registry.configure_parse(&mut options);
 
     let arena = Arena::new();
@@ -226,7 +237,22 @@ pub fn markdown_to_html_with(md: &str, registry: &Registry) -> String {
     String::from_utf8(buf).expect("utf8")
 }
 
+/// Convenience wrapper: renders `input` and uses it as the source-hint for
+/// path-aware plugins (macros looks for `<input>.macros.json` sibling).
 pub fn render_pdf(input: &Path, output: &Path, template: &str) -> Result<()> {
+    render_pdf_with_source(input, output, template, Some(input))
+}
+
+/// `source_hint` is what path-aware plugins (e.g. the macros plugin) treat
+/// as the document's source. The GUI uses this when it has to render from
+/// a temp file whose stem doesn't match the user's actual `.md` (so the
+/// `<stem>.macros.json` sibling still resolves).
+pub fn render_pdf_with_source(
+    input: &Path,
+    output: &Path,
+    template: &str,
+    source_hint: Option<&Path>,
+) -> Result<()> {
     let style_css = templates::style_css(template)?;
     let cover_template = templates::cover_html()?;
 
@@ -264,16 +290,25 @@ pub fn render_pdf(input: &Path, output: &Path, template: &str) -> Result<()> {
         .with_context(|| format!("writing style.css to {}", scratch.display()))?;
     registry.extract_assets(&scratch)?;
 
+    // Line-wrap long code blocks for PDF — print has no horizontal
+    // scrollbar to fall back on, so unwrapped lines just get cut off.
+    const PRINT_WRAP_CSS: &str = "\
+<style>pre, pre code { white-space: pre-wrap !important; word-break: break-word !important; overflow-wrap: anywhere !important; max-width: 100% !important; box-sizing: border-box !important; } .admonish pre, .admonish pre code { max-width: 100% !important; }</style>\n";
+
     let html_doc = format!(
         "<!DOCTYPE html>\n<html><head>\n\
          <meta charset=\"utf-8\">\n\
          <title>{title}</title>\n\
          <link rel=\"stylesheet\" href=\"style.css\">\n\
          {head}\
+         {head_for}\
+         {wrap_css}\
          <script>document.addEventListener('DOMContentLoaded',function(){{\n{init}}});</script>\n\
          </head><body>\n{cover}\n{body}\n</body></html>\n",
         title = html_escape(&cover_values.title),
         head = registry.head_html(),
+        head_for = registry.head_html_for(source_hint),
+        wrap_css = PRINT_WRAP_CSS,
         init = registry.init_js(),
         cover = cover_html,
         body = body_html,

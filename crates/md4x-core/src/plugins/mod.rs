@@ -9,8 +9,11 @@
 use anyhow::Result;
 use std::path::Path;
 
+pub mod admonish;
 pub mod katex;
+pub mod macros;
 pub mod mermaid;
+pub mod numthm;
 pub mod syntect;
 
 /// Contract every md4x capability extension implements.
@@ -49,6 +52,15 @@ pub trait Plugin: Send + Sync {
     /// HTML to inject into `<head>`.
     fn head_html(&self) -> &str {
         ""
+    }
+
+    /// Per-render `<head>` HTML, parameterized on the source file path.
+    /// Defaulted so existing plugins don't need to change. Used by the
+    /// macros plugin to load `<source>.macros.json` and inject it as a
+    /// pre-INIT_JS `window.MD4X_USER_MACROS = {...}` script. Concatenated
+    /// into the doc head AFTER `head_html()`.
+    fn head_html_for(&self, _source_path: Option<&std::path::Path>) -> String {
+        String::new()
     }
 
     /// JavaScript appended to the `DOMContentLoaded` init block.
@@ -126,6 +138,22 @@ impl Registry {
         out
     }
 
+    /// Concatenate each plugin's per-render head HTML (path-aware).
+    /// Returned string is appended to the doc `<head>` after `head_html()`.
+    pub fn head_html_for(&self, source_path: Option<&std::path::Path>) -> String {
+        let mut out = String::new();
+        for p in &self.plugins {
+            let h = p.head_html_for(source_path);
+            if !h.is_empty() {
+                out.push_str(&h);
+                if !h.ends_with('\n') {
+                    out.push('\n');
+                }
+            }
+        }
+        out
+    }
+
     /// Concatenate each plugin's init JS in registry order.
     pub fn init_js(&self) -> String {
         let mut out = String::new();
@@ -155,8 +183,17 @@ impl Registry {
 
 impl Default for Registry {
     fn default() -> Self {
+        // Order matters:
+        //   - admonish + numthm preprocess BEFORE katex / mermaid so the
+        //     emitted HTML / inline math survives the later passes intact.
+        //   - macros emits a head_html_for() <script> that must run BEFORE
+        //     katex's INIT_JS so window.MD4X_USER_MACROS is in place when
+        //     the KaTeX defaults are merged with user overrides.
         Self::new(vec![
+            Box::new(admonish::AdmonishPlugin),
+            Box::new(numthm::NumthmPlugin),
             Box::new(mermaid::MermaidPlugin),
+            Box::new(macros::MacrosPlugin),
             Box::new(katex::KatexPlugin),
             Box::new(syntect::SyntectPlugin::new()),
         ])

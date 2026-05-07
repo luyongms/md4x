@@ -79,6 +79,16 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 Convert a Markdown file to PDF, PPTX, or MP4. Rust, desktop-only. Optimize for small binary, low memory, fast startup, single-file deployment.
 
+**Kernel discipline (hard rule).** Do NOT add new functionality, types, or
+file-IO helpers to `md4x-core/src/render.rs` or `md4x-core/src/lib.rs`
+without explicit discussion. The kernel is the orchestrator — it holds a
+`Registry` of plugins and calls trait methods. Capabilities (KaTeX,
+mermaid, syntect, admonish, numthm, user macros, …) belong in
+`md4x-core/src/plugins/<name>.rs` as `Plugin` implementations. If a new
+capability needs context from the kernel (e.g. the source file path),
+extend the `Plugin` trait with a defaulted method rather than adding the
+behavior inline. See `docs/spec/plugin-architecture.md`.
+
 **md4x uses an LLM at specific pipeline stages, but it is not an agentic tool** — no agent loop, no tool use / function calling, no MCP. LLM calls are plain prompt → completion.
 
 **Status:** pre-v1 prototype. Versions: `v0.N.M` with N, M ≥ 1. Treat the codebase as experimental — ideas are still being explored.
