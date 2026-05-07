@@ -11,7 +11,9 @@
       {
         "title": "md4x",
         "width": 1200,
-        "height": 800
+        "height": 800,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true
       }
     ],
     "security": {
@@ -19,8 +21,18 @@
     }
   },
   "bundle": {
-    "active": false,
-    "targets": "all",
-    "icon": []
+    "active": true,
+    "targets": ["app", "dmg"],
+    "icon": [
+      "icons/build/icon.icns",
+      "icons/build/app.iconset/icon_32x32.png",
+      "icons/build/app.iconset/icon_128x128.png",
+      "icons/build/app.iconset/icon_128x128@2x.png",
+      "icons/build/app.iconset/icon_512x512.png",
+      "icons/build/app.iconset/icon_512x512@2x.png"
+    ],
+    "macOS": {
+      "minimumSystemVersion": "11.0"
+    }
   }
 }

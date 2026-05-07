@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <clipPath id="sq"><path d="M 230 0 L 794 0 C 906 0 1024 118 1024 230 L 1024 794 C 1024 906 906 1024 794 1024 L 230 1024 C 118 1024 0 906 0 794 L 0 230 C 0 118 118 0 230 0 Z"/></clipPath>
+  </defs>
+  <g clip-path="url(#sq)">
+    <rect width="1024" height="1024" fill="#1a1612"/>
+    <g stroke="#ffffff" stroke-width="0.5" opacity="0.04">
+      <line x1="80" y1="120" x2="944" y2="120"/>
+      <line x1="80" y1="170" x2="944" y2="170"/>
+      <line x1="80" y1="220" x2="944" y2="220"/>
+      <line x1="80" y1="270" x2="944" y2="270"/>
+      <line x1="80" y1="320" x2="944" y2="320"/>
+      <line x1="80" y1="370" x2="944" y2="370"/>
+      <line x1="80" y1="420" x2="944" y2="420"/>
+      <line x1="80" y1="470" x2="944" y2="470"/>
+      <line x1="80" y1="520" x2="944" y2="520"/>
+      <line x1="80" y1="570" x2="944" y2="570"/>
+      <line x1="80" y1="620" x2="944" y2="620"/>
+      <line x1="80" y1="670" x2="944" y2="670"/>
+      <line x1="80" y1="720" x2="944" y2="720"/>
+      <line x1="80" y1="770" x2="944" y2="770"/>
+      <line x1="80" y1="820" x2="944" y2="820"/>
+      <line x1="80" y1="870" x2="944" y2="870"/>
+      <line x1="80" y1="920" x2="944" y2="920"/>
+      <line x1="80" y1="970" x2="944" y2="970"/>
+    </g>
+    <line x1="140" y1="430" x2="884" y2="430" stroke="#f4eedf" stroke-width="1.5"/>
+    <line x1="140" y1="438" x2="884" y2="438" stroke="#f4eedf" stroke-width="0.6" opacity="0.5"/>
+    <text x="512" y="618" text-anchor="middle"
+      font-family="Georgia, 'Hoefler Text', 'Iowan Old Style', serif"
+      font-style="italic" font-size="336" font-weight="600" fill="#f4eedf"
+      letter-spacing="-4">md<tspan fill="#f4eedf" font-style="italic" font-weight="500">4</tspan>x</text>
+    <line x1="140" y1="660" x2="884" y2="660" stroke="#f4eedf" stroke-width="0.6" opacity="0.5"/>
+    <line x1="140" y1="668" x2="884" y2="668" stroke="#f4eedf" stroke-width="1.5"/>
+    <text x="512" y="730" text-anchor="middle"
+      font-family="Georgia, 'Hoefler Text', 'Iowan Old Style', serif"
+      font-size="42" fill="#f4eedf" letter-spacing="6"
+      font-variant="small-caps">VOL · II · NO · ZERO</text>
+    <text x="512" y="350" text-anchor="middle"
+      font-family="Georgia, 'Hoefler Text', 'Iowan Old Style', serif"
+      font-size="32" fill="#7a1f1f" letter-spacing="8"
+      font-variant="small-caps" font-style="italic">A MARKDOWN QUARTERLY</text>
+  </g>
+  <path d="M 230 0 L 794 0 C 906 0 1024 118 1024 230 L 1024 794 C 1024 906 906 1024 794 1024 L 230 1024 C 118 1024 0 906 0 794 L 0 230 C 0 118 118 0 230 0 Z"
+    fill="none" stroke="rgba(0,0,0,0.55)" stroke-width="1.5"/>
+</svg>

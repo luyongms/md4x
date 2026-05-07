@@ -8,27 +8,34 @@
 </head>
 <body>
   <div id="toolbar">
-    <span id="filename">Untitled</span>
-    <span id="unsaved" hidden aria-label="unsaved changes">•</span>
+    <div id="toolbar-traffic-pad" aria-hidden="true"></div>
+    <span id="filename">Untitled<span id="unsaved" hidden aria-label="unsaved changes"></span></span>
+    <div id="toolbar-drag" data-tauri-drag-region aria-label="Drag window" title="Drag to move window"></div>
+    <div id="toolbar-grip" data-tauri-drag-region aria-hidden="true" title="Drag to move window">
+      <div class="drag-grip" data-tauri-drag-region></div>
+    </div>
     <div id="toolbar-right">
       <button id="template-btn" aria-label="Templates">
+        <span class="label">Template</span>
         <span id="template-name">magazine</span>
         <span class="caret">▾</span>
       </button>
-      <button id="export-btn">Export PDF</button>
+      <button id="export-btn">Export PDF<span class="kbd-hint">⌘E</span></button>
+      <button id="settings-btn" aria-label="Settings" title="Settings ⌘,">
+        <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+          <circle cx="8" cy="8" r="2"/>
+          <path d="M8 1.5v2M8 12.5v2M14.5 8h-2M3.5 8h-2M12.6 3.4l-1.4 1.4M4.8 11.2l-1.4 1.4M12.6 12.6l-1.4-1.4M4.8 4.8L3.4 3.4"/>
+        </svg>
+      </button>
     </div>
   </div>
 
   <div id="panes">
     <div id="editor-pane">
-      <textarea id="editor" spellcheck="false" placeholder="Type Markdown here…"></textarea>
+      <div id="editor-mount"></div>
     </div>
     <div id="resizer" role="separator" aria-orientation="vertical"></div>
     <div id="preview-pane">
-      <!-- onwheel="" registers the iframe in WebKit's wheel-event region at
-           initial layout. Without it, WKWebView drops wheel events to the
-           iframe until something forces a region recompute (resize, srcdoc
-           reassignment). See WebKit bug #124139 / #142807. -->
       <iframe id="preview-a" title="Preview" onwheel="" sandbox="allow-scripts allow-same-origin"></iframe>
       <iframe id="preview-b" title="Preview" onwheel="" sandbox="allow-scripts allow-same-origin"></iframe>
     </div>
@@ -37,13 +44,22 @@
   <div id="statusbar">
     <span id="status-template">magazine</span>
     <span id="status-counts">0 words</span>
-    <span id="status-state">idle</span>
+    <button id="sb-undef" hidden type="button" title="Click to view undefined KaTeX macros">
+      <span class="sb-undef-icon" aria-hidden="true">⚠</span>
+      <span id="sb-undef-count">0</span>
+      <span class="sb-undef-label">undefined macros</span>
+    </button>
+    <span id="sb-render-row">
+      <span id="sb-render-time"></span>
+      <span id="sb-pulse" aria-label="render"></span>
+      <span id="sb-saved-dot" aria-label="saved"></span>
+    </span>
   </div>
 
-  <!-- Welcome overlay: shown when no file is loaded and editor is empty. -->
+  <!-- Welcome overlay -->
   <div id="welcome" hidden>
     <div class="welcome-card">
-      <h1>md4x</h1>
+      <div class="wordmark">md<span class="accent">4x</span></div>
       <p class="tagline">Markdown → magazine-quality PDF</p>
       <div id="dropzone">
         <p>Drop a <code>.md</code> file here to open</p>
@@ -53,20 +69,130 @@
       <div class="welcome-recent">
         <h2>Recent</h2>
         <ul id="recent-list" class="recent">
-          <li class="muted recent-empty">No recent files yet.</li>
+          <li class="recent-empty">No recent files yet.</li>
         </ul>
       </div>
     </div>
   </div>
 
-  <!-- Template gallery overlay: opens from toolbar template button. -->
+  <!-- Template gallery -->
   <div id="gallery" hidden>
     <div class="gallery-card">
       <header>
-        <h2>Templates</h2>
+        <h2>Template gallery</h2>
         <button id="gallery-close" aria-label="Close">✕</button>
       </header>
       <div id="gallery-grid" class="gallery-grid"></div>
+    </div>
+  </div>
+
+  <!-- Export PDF dialog (per design §6) -->
+  <div id="export-dialog" hidden>
+    <div class="export-scrim" data-export-dismiss></div>
+    <div class="export-card" role="dialog" aria-label="Export PDF">
+      <header class="export-card-header">
+        <h2>Export PDF</h2>
+      </header>
+      <div class="export-body">
+        <label class="export-label" for="export-name">Save as</label>
+        <input id="export-name" type="text" class="export-input export-input-mono" spellcheck="false" placeholder="untitled.pdf">
+
+        <label class="export-label" for="export-where-btn">Where</label>
+        <button id="export-where-btn" class="export-input export-where" type="button">
+          <span id="export-where-path"></span>
+          <span class="export-where-caret">▾</span>
+        </button>
+
+        <label class="export-label" for="export-template">Template</label>
+        <div class="export-select-wrap">
+          <select id="export-template" class="export-input export-select"></select>
+          <span class="export-select-caret">▾</span>
+        </div>
+
+        <p class="export-note">Render uses identical kernel as CLI · output ≡ md4x --to pdf</p>
+      </div>
+      <div class="export-actions">
+        <button id="export-cancel" class="export-btn-secondary" data-export-dismiss>Cancel</button>
+        <button id="export-go" class="export-btn-primary">Export</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Settings drawer -->
+  <div id="settings" hidden>
+    <div class="settings-scrim" data-settings-dismiss></div>
+    <aside class="settings-drawer" role="dialog" aria-label="Settings">
+      <header>
+        <h2>Settings</h2>
+        <button id="settings-close" aria-label="Close" data-settings-dismiss>✕</button>
+      </header>
+      <div class="settings-body">
+        <section class="set-section">
+          <label class="set-label" for="set-default-template">Default template</label>
+          <div class="set-select-wrap">
+            <select id="set-default-template" class="set-select"></select>
+            <span class="set-select-caret">▾</span>
+          </div>
+        </section>
+
+        <section class="set-section">
+          <div class="set-row">
+            <label class="set-label" for="set-debounce">Preview debounce</label>
+            <span id="set-debounce-val" class="set-value">250 ms</span>
+          </div>
+          <input type="range" id="set-debounce" class="set-slider" min="50" max="800" step="10" value="250">
+          <p class="set-hint">faster preview ↔ less CPU</p>
+        </section>
+
+        <section class="set-section">
+          <div class="set-row">
+            <label class="set-label" for="set-zoom">Preview zoom</label>
+            <span id="set-zoom-val" class="set-value">100%</span>
+          </div>
+          <input type="range" id="set-zoom" class="set-slider" min="50" max="200" step="5" value="100">
+        </section>
+
+        <section class="set-section">
+          <label class="set-label">Editor theme</label>
+          <div class="set-segmented" role="radiogroup" aria-label="Editor theme">
+            <button class="seg-opt active" data-theme="dark" role="radio" aria-checked="true">dark (default)</button>
+            <button class="seg-opt" data-theme="light" role="radio" aria-checked="false">light</button>
+          </div>
+        </section>
+
+        <section class="set-section set-toggle-row">
+          <div class="set-toggle-text">
+            <label class="set-label">Open externally on export</label>
+            <p class="set-hint">reveal in Finder after exporting PDF</p>
+          </div>
+          <button id="set-reveal" class="set-switch" role="switch" aria-checked="true" aria-label="Reveal in Finder after exporting"><span class="set-switch-knob"></span></button>
+        </section>
+      </div>
+      <footer class="settings-footer">Settings persisted locally</footer>
+    </aside>
+  </div>
+
+  <!-- Undefined-macros modal -->
+  <div id="undef-modal" hidden>
+    <div class="undef-scrim" data-undef-dismiss></div>
+    <div class="undef-card" role="dialog" aria-label="Undefined KaTeX macros">
+      <header class="undef-card-header">
+        <h2>Undefined KaTeX macros</h2>
+        <button id="undef-close" class="undef-close" aria-label="Close" data-undef-dismiss>✕</button>
+      </header>
+      <div class="undef-body">
+        <p class="undef-intro">
+          These commands appear in the document's math but aren't defined by KaTeX
+          or in the loaded macros. Add expansions to a sibling
+          <code id="undef-target-name">.macros.json</code> file
+          (e.g. <code>"\\foo": "\\mathbb{F}"</code>) and the preview will pick them up.
+        </p>
+        <ul id="undef-list" class="undef-list"></ul>
+      </div>
+      <div class="undef-actions">
+        <button id="undef-dismiss-btn" class="undef-btn-secondary" data-undef-dismiss>Close</button>
+        <button id="undef-template-btn" class="undef-btn-primary">Generate template…</button>
+      </div>
     </div>
   </div>
 
@@ -76,13 +202,14 @@
       <h3>Unsaved changes</h3>
       <p>The current document has unsaved changes. Save before closing?</p>
       <div class="confirm-actions">
-        <button id="confirm-save">Save</button>
-        <button id="confirm-discard">Discard</button>
         <button id="confirm-cancel">Cancel</button>
+        <button id="confirm-discard">Discard</button>
+        <button id="confirm-save">Save</button>
       </div>
     </div>
   </div>
 
+  <script src="vendor/cm6-bundle.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

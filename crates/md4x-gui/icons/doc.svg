@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <clipPath id="docclip">
+      <path d="M180 80 h520 l180 180 v660 a40 40 0 0 1 -40 40 h-660 a40 40 0 0 1 -40 -40 v-800 a40 40 0 0 1 40 -40 z"/>
+    </clipPath>
+  </defs>
+  <path d="M180 80 h520 l180 180 v660 a40 40 0 0 1 -40 40 h-660 a40 40 0 0 1 -40 -40 v-800 a40 40 0 0 1 40 -40 z"
+    fill="rgba(0,0,0,0.10)" transform="translate(6, 8)"/>
+  <path d="M180 80 h520 l180 180 v660 a40 40 0 0 1 -40 40 h-660 a40 40 0 0 1 -40 -40 v-800 a40 40 0 0 1 40 -40 z"
+    fill="#f4eedf" stroke="#1a1612" stroke-width="1.5"/>
+  <path d="M700 80 v140 a40 40 0 0 0 40 40 h140 z"
+    fill="#e9e1cc" stroke="#1a1612" stroke-width="1.5"/>
+  <path d="M700 80 v140 a40 40 0 0 0 40 40 h140"
+    fill="none" stroke="#1a1612" stroke-width="1.5"/>
+  <g clip-path="url(#docclip)">
+    <rect x="220" y="180" width="544" height="700" fill="none"
+      stroke="#1a1612" stroke-width="1"/>
+    <text x="492" y="320" text-anchor="middle"
+      font-family="Georgia, 'Hoefler Text', 'Iowan Old Style', serif"
+      font-size="84" fill="#7a1f1f" font-style="italic">§</text>
+    <line x1="280" y1="360" x2="704" y2="360" stroke="#1a1612" stroke-width="0.8"/>
+    <text x="492" y="450" text-anchor="middle"
+      font-family="Georgia, 'Hoefler Text', 'Iowan Old Style', serif"
+      font-size="58" font-style="italic" fill="#1a1612">essay</text>
+    <text x="492" y="498" text-anchor="middle"
+      font-family="Georgia, 'Hoefler Text', 'Iowan Old Style', serif"
+      font-size="20" fill="#3a322b"
+      letter-spacing="6" font-variant="small-caps">a markdown manuscript</text>
+    <line x1="332" y1="560" x2="692" y2="560" stroke="#1a1612" stroke-width="2" opacity="0.6"/>
+    <line x1="322" y1="600" x2="702" y2="600" stroke="#1a1612" stroke-width="2" opacity="0.6"/>
+    <line x1="352" y1="640" x2="672" y2="640" stroke="#1a1612" stroke-width="2" opacity="0.6"/>
+    <line x1="322" y1="680" x2="702" y2="680" stroke="#1a1612" stroke-width="2" opacity="0.6"/>
+    <line x1="342" y1="720" x2="682" y2="720" stroke="#1a1612" stroke-width="2" opacity="0.6"/>
+    <line x1="332" y1="760" x2="692" y2="760" stroke="#1a1612" stroke-width="2" opacity="0.6"/>
+    <line x1="372" y1="800" x2="652" y2="800" stroke="#1a1612" stroke-width="2" opacity="0.6"/>
+    <line x1="280" y1="828" x2="704" y2="828" stroke="#1a1612" stroke-width="0.8"/>
+    <text x="492" y="858" text-anchor="middle"
+      font-family="Georgia, 'Hoefler Text', 'Iowan Old Style', serif"
+      font-size="18" fill="#7a1f1f"
+      letter-spacing="6" font-variant="small-caps" font-style="italic">md · 4 · x</text>
+  </g>
+</svg>
