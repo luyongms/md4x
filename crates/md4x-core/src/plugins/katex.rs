@@ -99,8 +99,14 @@ const INIT_JS: &str = r#"
     Object.assign(macros, window.MD4X_USER_MACROS);
   }
   window.MD4X_KATEX_OPTIONS = {
-    throwOnError: false,
-    strict: 'ignore',
+    // throwOnError: true so undefined control sequences raise — the
+    // catch handler in the render loop converts every throw into a
+    // synthetic `.katex-error[title]` span which the GUI scanner reads.
+    // With throwOnError:false + strict:'ignore' the previous setup
+    // silently text-rendered unknown commands and the warning pill
+    // never fired.
+    throwOnError: true,
+    strict: 'warn',
     macros: macros,
   };
   // Live-update path: app.js calls this when `<file>.macros.json` changes
@@ -148,13 +154,30 @@ function md4xKatexOpts(display){
 document.querySelectorAll('span[data-math-style]').forEach(function(el){
   if (!el.dataset.mathSrc) el.dataset.mathSrc = el.textContent;
 });
+// On any KaTeX render failure (e.g. an undefined control sequence
+// that KaTeX *does* throw on despite throwOnError:false in some
+// bundles), inject a synthetic `.katex-error[title="..."]` span so
+// the GUI's scanAndReportUndefMacros scanner can surface a warning
+// pill for the user. Without this, the catch swallowed silently and
+// the math just rendered as raw text with no error signal.
+function md4xFailMath(el, src, e) {
+  el.textContent = '';
+  var span = document.createElement('span');
+  span.className = 'katex-error';
+  var msg = (e && e.message) ? e.message : String(e || 'KaTeX error');
+  span.setAttribute('title', msg);
+  span.textContent = src;
+  el.appendChild(span);
+}
 document.querySelectorAll('span[data-math-style="inline"]').forEach(function(el){
   var src = el.dataset.mathSrc || el.textContent;
-  try { katex.render(window.md4xSanitizeMath(src), el, md4xKatexOpts(false)); } catch(e){}
+  try { katex.render(window.md4xSanitizeMath(src), el, md4xKatexOpts(false)); }
+  catch(e){ md4xFailMath(el, src, e); }
 });
 document.querySelectorAll('span[data-math-style="display"]').forEach(function(el){
   var src = el.dataset.mathSrc || el.textContent;
-  try { katex.render(window.md4xSanitizeMath(src), el, md4xKatexOpts(true)); } catch(e){}
+  try { katex.render(window.md4xSanitizeMath(src), el, md4xKatexOpts(true)); }
+  catch(e){ md4xFailMath(el, src, e); }
 });
 "#;
 
