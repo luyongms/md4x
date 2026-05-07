@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- Allow NSOpenPanel / NSSavePanel to return security-scoped paths.
+       Without this entitlement under macOS Hardened Runtime (which a
+       bundled .app gets even when ad-hoc-signed), the file panels abort
+       the host process. Symptom: Cmd+Shift+S crashes with SIGABRT. -->
+  <key>com.apple.security.files.user-selected.read-write</key>
+  <true/>
+  <!-- WKWebView JS engine uses JIT. Without these entitlements the
+       embedded WebView either runs interpreter-only (slow) or fails
+       to load at all on hardened runtime. -->
+  <key>com.apple.security.cs.allow-jit</key>
+  <true/>
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+  <true/>
+  <!-- Tauri loads system frameworks / WebKit dylibs at runtime. -->
+  <key>com.apple.security.cs.disable-library-validation</key>
+  <true/>
+</dict>
+</plist>

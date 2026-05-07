@@ -32,7 +32,9 @@
       "icons/build/app.iconset/icon_512x512@2x.png"
     ],
     "macOS": {
-      "minimumSystemVersion": "11.0"
+      "minimumSystemVersion": "11.0",
+      "entitlements": "./entitlements.plist",
+      "signingIdentity": "-"
     }
   }
 }

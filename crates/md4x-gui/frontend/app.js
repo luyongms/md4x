@@ -1162,8 +1162,6 @@ function nudgeSplitterWidth() {
   const rect = editorPane.getBoundingClientRect();
   const startW = rect.width;
   if (!startW) return;
-  // Need explicit width because the pane normally uses flex sizing; force
-  // it to a pixel value, perturb, then restore in the same flex mode.
   const prevFlex = editorPane.style.flex;
   const prevWidth = editorPane.style.width;
   editorPane.style.flex = 'none';
