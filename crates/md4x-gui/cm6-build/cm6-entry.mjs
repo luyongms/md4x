@@ -8,7 +8,7 @@ import {
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
 import {
   syntaxHighlighting, defaultHighlightStyle, HighlightStyle,
-  bracketMatching, indentOnInput,
+  bracketMatching, indentOnInput, syntaxTree,
 } from "@codemirror/language";
 import { markdown } from "@codemirror/lang-markdown";
 import { tags as t } from "@lezer/highlight";
@@ -19,6 +19,6 @@ window.MD4X_CM6 = {
   highlightActiveLineGutter, drawSelection,
   defaultKeymap, history, historyKeymap, indentWithTab,
   syntaxHighlighting, defaultHighlightStyle, HighlightStyle,
-  bracketMatching, indentOnInput,
+  bracketMatching, indentOnInput, syntaxTree,
   markdown, t,
 };

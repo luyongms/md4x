@@ -136,8 +136,13 @@ pub fn admonish_preprocess(md: &str) -> String {
             let body: &[&str] = &lines[i + 1..j];
 
             let (open_tag, close_tag, title_tag) = if collapsible {
+                // `open` attribute → expanded by default. Authors who set
+                // collapsible=true want the disclosure CHROME (the toggle)
+                // but the body to be visible on first paint, both in the
+                // PDF/preview render path and as the user scrolls. The
+                // user can still click to collapse.
                 (
-                    format!("<details class=\"admonish admonish-{kind}\">"),
+                    format!("<details open class=\"admonish admonish-{kind}\">"),
                     "</details>".to_string(),
                     "summary",
                 )
