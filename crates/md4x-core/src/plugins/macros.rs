@@ -287,17 +287,38 @@ pub fn lint(inline: Option<&str>, sidecar: Option<&str>) -> LintReport {
 
 // ── Inline / split file ops ────────────────────────────────────────────────
 
-/// Read `path`, append (or replace) an inline macros block sourced from
-/// `<path>.macros.json`. Returns the new file contents. Caller writes.
+/// Read `path`, append (or replace) an inline macros block.
+///
+/// Merge policy when both sources of truth exist:
+///   - Existing inline block (in the markdown, if any)
+///   - Sidecar `<path>.macros.json` (if present)
+/// Inline keys win on conflict, matching the render-time precedence.
+/// New sidecar keys are added; existing inline keys not in the sidecar
+/// are preserved. Bails if neither source exists.
+///
+/// Returns the new file contents. Caller writes.
 pub fn inline_into_source(path: &Path) -> anyhow::Result<String> {
     let md = fs::read_to_string(path)?;
-    let sidecar = load_user_macros(Some(path))
-        .ok_or_else(|| anyhow::anyhow!("no sidecar .macros.json found next to {}", path.display()))?;
-    let block = build_inline_block(&sidecar)
-        .map_err(|e| anyhow::anyhow!("sidecar JSON invalid: {e}"))?;
+    let (stripped, existing_inline) = extract_inline_macros(&md);
+    let sidecar = load_user_macros(Some(path));
 
-    // Strip any existing inline block first so this is idempotent.
-    let (stripped, _) = extract_inline_macros(&md);
+    if existing_inline.is_none() && sidecar.is_none() {
+        anyhow::bail!(
+            "no macros to inline — no sidecar .macros.json next to {} and no existing inline block",
+            path.display()
+        );
+    }
+
+    // merge_macros emits a single-line compact JSON with sorted keys.
+    // build_inline_block then re-parses + pretty-prints with 2-space
+    // indent for diffability.
+    let merged = merge_macros(existing_inline.as_deref(), sidecar.as_deref());
+    if merged.is_empty() {
+        anyhow::bail!("macros sources parsed empty — nothing to inline");
+    }
+    let block = build_inline_block(&merged)
+        .map_err(|e| anyhow::anyhow!("macros JSON invalid: {e}"))?;
+
     let mut out = stripped;
     if !out.ends_with('\n') { out.push('\n'); }
     out.push('\n');                     // blank line before block

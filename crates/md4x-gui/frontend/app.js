@@ -840,35 +840,24 @@ const undefTemplateBtn = document.getElementById('undef-template-btn');
 const undefInlineBtn  = document.getElementById('undef-inline-btn');
 const undefHelpBtn    = document.getElementById('undef-help-btn');
 const undefTargetName = document.getElementById('undef-target-name');
-const inlineHelpEl    = document.getElementById('inline-help');
+const helpModal       = document.getElementById('help-modal');
+const helpIframe      = document.getElementById('help-iframe');
+const helpBtn         = document.getElementById('help-btn');
 
 let lastUndefMacros = []; // sorted unique array
 
 function scanAndReportUndefMacros(iframe) {
   const doc = iframe.contentDocument;
   if (!doc) return;
-  // Two detection paths:
-  //   (1) KaTeX wraps hard parse errors in `<span class="katex-error" title="...">`.
-  //   (2) With `strict: 'ignore'` (our default — renders cleanly when macros
-  //       are present) KaTeX silently emits unknown control sequences as
-  //       LITERAL text inside .katex containers. The user sees gibberish
-  //       and gets no error span. We scan textContent for residual
-  //       `\command` tokens as a fallback signal.
+  // KaTeX wraps every render error in `<span class="katex-error" title="...">`
+  // where the title is the exact ParseError message — including the
+  // failing control sequence. The text content is the *whole* failing
+  // expression so we deliberately ignore it (it would over-report).
   const set = new Set();
   doc.querySelectorAll('.katex-error[title]').forEach(el => {
     const title = el.getAttribute('title') || '';
     const m = title.match(/Undefined control sequence:\s*(\\[a-zA-Z]+)/);
     if (m) set.add(m[1]);
-  });
-  // Scan only `.katex-html` (visible render), NOT `.katex-mathml` which
-  // includes a `<annotation encoding="application/x-tex">` carrying the
-  // original TeX source — that would surface every macro as a false
-  // positive even when KaTeX rendered it correctly.
-  doc.querySelectorAll('.katex .katex-html').forEach(html => {
-    const text = html.textContent || '';
-    const matches = text.match(/\\[a-zA-Z]+/g);
-    if (!matches) return;
-    for (const tok of matches) set.add(tok);
   });
   lastUndefMacros = Array.from(set).sort();
   updateUndefPill();
@@ -899,11 +888,19 @@ function openUndefModal() {
     const stem = currentFilePath.split('/').pop().replace(/\.(md|markdown|mdx)$/i, '');
     undefTargetName.textContent = `${stem}.macros.json`;
     undefTemplateBtn.disabled = lastUndefMacros.length === 0;
-    undefInlineBtn.disabled = false;
+    // Inline only makes sense once a sidecar exists. lastUserMacrosJson
+    // is the bytes of the sidecar at last render — empty string means
+    // no sidecar (or it's not a JSON object).
+    const hasSidecar = !!(lastUserMacrosJson && lastUserMacrosJson.trim().startsWith('{'));
+    undefInlineBtn.disabled = !hasSidecar;
+    undefInlineBtn.title = hasSidecar
+      ? 'Embed sidecar JSON into the document so the .md ships self-contained'
+      : 'No sidecar yet — generate a template and fill in expansions first';
   } else {
     undefTargetName.textContent = '<filename>.macros.json';
     undefTemplateBtn.disabled = true;
     undefInlineBtn.disabled = true;
+    undefInlineBtn.title = 'Save the document first';
   }
   undefModal.hidden = false;
 }
@@ -954,17 +951,15 @@ undefInlineBtn.addEventListener('click', async () => {
     toast('Save the document first — inline writes to a real .md file');
     return;
   }
-  if (isDirty) {
-    toast('Save unsaved edits first — inline rewrites the .md on disk');
-    return;
-  }
   undefInlineBtn.disabled = true;
   try {
+    // Pass the live buffer (includes unsaved edits). Backend strips any
+    // existing inline block, merges with sidecar (inline wins), and
+    // writes the result.
     const result = await invoke('inline_macros_into_source', {
       sourcePath: currentFilePath,
+      md: editorText(),
     });
-    // Replace in-memory editor content with the rewritten file (block
-    // appended at EOF). Mark clean — we just persisted to disk.
     setEditorContent(result.new_content, result.path);
     closeUndefModal();
     toast(`Macros inlined → ${result.path.split('/').pop()}. The .md ships self-contained.`);
@@ -976,11 +971,46 @@ undefInlineBtn.addEventListener('click', async () => {
   }
 });
 
-undefHelpBtn.addEventListener('click', () => { inlineHelpEl.hidden = false; });
-inlineHelpEl.addEventListener('click', (e) => {
-  if (e.target.dataset && 'inlineHelpDismiss' in e.target.dataset) {
-    inlineHelpEl.hidden = true;
+async function openHelp() {
+  helpModal.hidden = false;
+  try {
+    const result = await invoke('render_help_html', { template: currentTemplate });
+    // Strip the preview pane's A4-page chrome — help is a regular
+    // document, not a print artifact.
+    helpIframe.addEventListener('load', () => {
+      const doc = helpIframe.contentDocument;
+      if (!doc) return;
+      const style = doc.createElement('style');
+      style.textContent = `
+        html { background: #fff !important; padding: 0 !important; overflow-y: auto !important; }
+        body {
+          width: auto !important;
+          max-width: 760px !important;
+          margin: 0 auto !important;
+          padding: 28px 36px !important;
+          background: #fff !important;
+          box-shadow: none !important;
+          transform: none !important;
+        }
+        .cover-page { display: none !important; }
+      `;
+      doc.head.appendChild(style);
+    }, { once: true });
+    helpIframe.srcdoc = result.html;
+  } catch (e) {
+    helpIframe.srcdoc = `<pre>Help failed to render: ${e}</pre>`;
   }
+}
+function closeHelp() {
+  helpModal.hidden = true;
+  helpIframe.srcdoc = '';   // free render
+}
+window.openHelp = openHelp;
+
+undefHelpBtn.addEventListener('click', () => { closeUndefModal(); openHelp(); });
+helpBtn.addEventListener('click', openHelp);
+helpModal.addEventListener('click', (e) => {
+  if (e.target.dataset && 'helpDismiss' in e.target.dataset) closeHelp();
 });
 
 // ── Toast ───────────────────────────────────────────────────────────────────
@@ -1550,6 +1580,7 @@ window.addEventListener('keydown', e => {
   if (e.key === 'Escape' && !exportDialog.hidden) { closeExportDialog(); return; }
   if (e.key === 'Escape' && !settingsEl.hidden) { settingsEl.hidden = true; return; }
   if (e.key === 'Escape' && !undefModal.hidden) { closeUndefModal(); return; }
+  if (e.key === 'Escape' && !helpModal.hidden) { closeHelp(); return; }
   if (!(e.metaKey || e.ctrlKey)) return;
   const k = e.key.toLowerCase();
   if (k === 'o' && !e.shiftKey && !e.altKey) { e.preventDefault(); openFile(); }

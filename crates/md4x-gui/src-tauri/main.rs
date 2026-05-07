@@ -2,6 +2,10 @@ use std::path::PathBuf;
 
 use serde::Serialize;
 
+/// Bundled help text. Compiled in via include_str! so the GUI can show
+/// it without depending on docs/ being on disk at runtime.
+const HELP_MD: &str = include_str!("../../../docs/help.md");
+
 #[derive(Serialize)]
 struct RenderedDoc {
     html: String,
@@ -263,17 +267,46 @@ struct InlineResult {
     new_content: String,
 }
 
-/// Inline `<source>.macros.json` into the markdown at `source_path`.
-/// Sidecar JSON is read by the macros plugin's loader, embedded as an
-/// HTML-comment block at EOF, and the rewritten source is both written
-/// to disk AND returned so the GUI's editor buffer can refresh in
-/// place. Sidecar is kept on disk by default — caller deletes it if
-/// desired.
+/// Render the bundled docs/help.md into HTML using the same render
+/// pipeline the live preview uses. Returned to the GUI which loads it
+/// into the help modal's iframe via srcdoc.
 #[tauri::command]
-fn inline_macros_into_source(source_path: String) -> Result<InlineResult, String> {
+fn render_help_html(template: String) -> Result<RenderedDoc, String> {
+    render_html(HELP_MD.to_string(), template, None)
+}
+
+/// Inline a merged macros block into the markdown buffer.
+///
+/// `md` is the LIVE editor buffer (which may include unsaved edits).
+/// We strip any existing inline block, merge with the sidecar
+/// `.macros.json` if present (inline-wins on conflict), build a new
+/// pretty-printed block, append it, and write the result to disk —
+/// then return the new content so the editor buffer can refresh in
+/// place.
+#[tauri::command]
+fn inline_macros_into_source(source_path: String, md: String) -> Result<InlineResult, String> {
+    use md4x_core::plugins::macros as m;
     let pb = PathBuf::from(&source_path);
-    let new_content = md4x_core::plugins::macros::inline_into_source(&pb)
-        .map_err(|e| e.to_string())?;
+
+    let (stripped, existing_inline) = m::extract_inline_macros(&md);
+    let sidecar = m::load_user_macros(Some(&pb));
+    if existing_inline.is_none() && sidecar.is_none() {
+        return Err(format!(
+            "no macros to inline — no sidecar .macros.json next to {} and no existing inline block",
+            pb.display()
+        ));
+    }
+    let merged = m::merge_macros(existing_inline.as_deref(), sidecar.as_deref());
+    if merged.is_empty() {
+        return Err("macros sources parsed empty — nothing to inline".into());
+    }
+    let block = m::build_inline_block(&merged).map_err(|e| e)?;
+
+    let mut new_content = stripped;
+    if !new_content.ends_with('\n') { new_content.push('\n'); }
+    new_content.push('\n');
+    new_content.push_str(&block);
+
     std::fs::write(&pb, new_content.as_bytes()).map_err(|e| e.to_string())?;
     Ok(InlineResult { path: pb.display().to_string(), new_content })
 }
@@ -443,6 +476,7 @@ fn main() {
             read_file, save_file, save_file_as, close_window,
             reveal_in_finder, pick_save_dir, default_save_dir,
             write_macros_template, inline_macros_into_source,
+            render_help_html,
         ])
         .setup(|app| {
             use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
@@ -514,8 +548,15 @@ fn main() {
                 .close_window()
                 .build()?;
 
+            let help_item = MenuItemBuilder::with_id("help", "md4x Help")
+                .accelerator("CmdOrCtrl+?")
+                .build(app)?;
+            let help_submenu = SubmenuBuilder::new(app, "Help")
+                .item(&help_item)
+                .build()?;
+
             let menu = MenuBuilder::new(app)
-                .items(&[&app_submenu, &file_submenu, &edit_submenu, &window_submenu])
+                .items(&[&app_submenu, &file_submenu, &edit_submenu, &window_submenu, &help_submenu])
                 .build()?;
             app.set_menu(menu)?;
 
@@ -529,6 +570,7 @@ fn main() {
                     "save_as"  => "window.saveFileAs && window.saveFileAs();",
                     "export"   => "document.getElementById(\"export-btn\").click();",
                     "settings" => "window.openSettings && window.openSettings();",
+                    "help"     => "window.openHelp && window.openHelp();",
                     _ => return,
                 };
                 if let Some(w) = app.get_webview_window("main") {

@@ -1278,6 +1278,59 @@ body.theme-light {
 }
 body.theme-light .seg-opt[data-theme="light"] { color: #1c1c1e; }
 
+/* ── Help modal (v0.2.4) ────────────────────────────────────────────────── */
+#help-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+#help-modal .help-scrim {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+}
+#help-modal .help-card {
+  position: relative;
+  width: min(900px, 92vw);
+  height: min(80vh, 800px);
+  background: var(--md4x-bg, #fff);
+  border-radius: 10px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+#help-modal .help-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+  flex-shrink: 0;
+}
+#help-modal .help-card-header h2 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+#help-modal #help-close {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 16px;
+  color: var(--md4x-text-secondary);
+  padding: 4px 8px;
+}
+#help-modal #help-iframe {
+  flex: 1;
+  border: none;
+  width: 100%;
+  background: #fff;
+}
+
 /* ── Scroll-alignment ticks (v0.2.3) ────────────────────────────────────── */
 /* Two thin overlay strips on splitter-facing edges of editor and preview
    panes. Faint per-block ticks + a red current tick at the seam where
