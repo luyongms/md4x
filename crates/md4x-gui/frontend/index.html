@@ -140,7 +140,7 @@
             <label class="set-label" for="set-debounce">Preview debounce</label>
             <span id="set-debounce-val" class="set-value">250 ms</span>
           </div>
-          <input type="range" id="set-debounce" class="set-slider" min="50" max="800" step="10" value="250">
+          <input type="range" id="set-debounce" class="set-slider" min="0" max="800" step="1" value="250">
           <p class="set-hint">faster preview ↔ less CPU</p>
         </section>
 
@@ -210,6 +210,8 @@
   </div>
 
   <script src="vendor/cm6-bundle.js"></script>
+  <script src="alignment-math.js"></script>
+  <script src="alignment-ticks.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

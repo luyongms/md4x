@@ -376,20 +376,29 @@ function elDocTop(el, win) {
 // the handler couldn't keep up — events queued, the bounce-back machinery
 // got out of phase, and the editor stopped tracking. Invalidated on each
 // applyRender via invalidatePreviewBlocksCache().
-let _previewBlocksCache = { iframe: null, blocks: null, tops: null };
+let _previewBlocksCache = { iframe: null, blocks: null, tops: null, scrollHeight: 0 };
 function invalidatePreviewBlocksCache() {
-  _previewBlocksCache = { iframe: null, blocks: null, tops: null };
+  _previewBlocksCache = { iframe: null, blocks: null, tops: null, scrollHeight: 0 };
 }
 function getPreviewBlocksCached(iframe) {
-  if (_previewBlocksCache.iframe === iframe && _previewBlocksCache.blocks)
-    return _previewBlocksCache;
+  // Stale-detect: doc layout grew/shrank between renders (mermaid/katex
+  // finished after applyRender, or async font load shifted blocks).
+  // ResizeObserver covers most cases via schedulePreviewCacheInvalidate,
+  // but on huge docs the 150 ms debounce can lag a snap-to-end jump.
+  if (_previewBlocksCache.iframe === iframe && _previewBlocksCache.blocks) {
+    const win = iframe.contentWindow;
+    const sh  = win && win.document && win.document.documentElement.scrollHeight;
+    if (sh && Math.abs(sh - _previewBlocksCache.scrollHeight) <= 2) {
+      return _previewBlocksCache;
+    }
+  }
   const win = iframe.contentWindow;
   const doc = win && win.document;
   const blocks = getPreviewBlocks(doc);
-  // Read all offsets in one pass — forces ONE layout instead of N.
   const tops = new Array(blocks.length);
   for (let i = 0; i < blocks.length; i++) tops[i] = elDocTop(blocks[i].el, win);
-  _previewBlocksCache = { iframe, blocks, tops };
+  const scrollHeight = doc && doc.documentElement ? doc.documentElement.scrollHeight : 0;
+  _previewBlocksCache = { iframe, blocks, tops, scrollHeight };
   return _previewBlocksCache;
 }
 
@@ -611,6 +620,118 @@ function rafSchedSync(key, fn) {
   if (_rafSync[key]) return;
   _rafSync[key] = true;
   requestAnimationFrame(() => { _rafSync[key] = false; fn(); });
+}
+
+// ── Alignment ticks (v0.2.3) ──────────────────────────────────────────────
+// Build per-pane state for the alignment-ticks module: tops, kinds,
+// scrollTop, viewportH. Reuse existing block-sync primitives unchanged.
+function getCursorBlockOrdinal() {
+  if (!cm) return -1;
+  const blocks = getLezerBlocks();
+  if (!blocks.length) return -1;
+  const head = cm.state.selection.main.head;
+  return lezerBlockIndexAtPos(blocks, head);
+}
+function getEditorAlignmentState() {
+  if (!cm) return null;
+  const sd = cm.scrollDOM;
+  const lBlocks = getLezerBlocks();
+  const tops  = new Array(lBlocks.length);
+  const kinds = new Array(lBlocks.length);
+  for (let i = 0; i < lBlocks.length; i++) {
+    let bi;
+    try { bi = cm.lineBlockAt(lBlocks[i].from); } catch (_) { bi = null; }
+    tops[i]  = bi ? bi.top : 0;
+    kinds[i] = lBlocks[i].kind;
+  }
+  // Cursor red tick: use coordsAtPos for accurate viewport-Y (matches the
+  // coord system used by existing syncPreviewFromCursor). lineBlockAt's
+  // doc-Y is offset by cm-content padding which causes ~tens-of-px drift.
+  const cursorOrdinal = getCursorBlockOrdinal();
+  let cursorTickY = null;
+  if (cursorOrdinal >= 0) {
+    try {
+      const c = cm.coordsAtPos(lBlocks[cursorOrdinal].from);
+      if (c) {
+        const r = sd.getBoundingClientRect();
+        cursorTickY = c.top - r.top;
+      }
+    } catch (_) { /* off-screen → null */ }
+  }
+  return {
+    tops, kinds,
+    scrollTop: sd.scrollTop,
+    viewportH: sd.clientHeight,
+    cursorOrdinal,
+    cursorTickY,
+  };
+}
+function getPreviewAlignmentState() {
+  const iframe = activeIframe();
+  const win = iframe && iframe.contentWindow;
+  if (!win || !win.document || !win.document.body) return null;
+  const cache = getPreviewBlocksCached(iframe);
+  const kinds = cache.blocks.map(b => b.kind);
+  const cursorOrdinal = getCursorBlockOrdinal();
+  let cursorTickY = null;
+  if (cursorOrdinal >= 0 && cursorOrdinal < cache.blocks.length) {
+    // Live read instead of cached top — preview block may have shifted
+    // since cache was built (mermaid/katex async layout).
+    const liveTop = elDocTop(cache.blocks[cursorOrdinal].el, win);
+    const y = liveTop - win.scrollY;
+    if (y >= 0 && y <= win.innerHeight) cursorTickY = y;
+  }
+  return {
+    tops:      cache.tops.slice(),
+    kinds,
+    scrollTop: win.scrollY,
+    viewportH: win.innerHeight,
+    cursorOrdinal,
+    cursorTickY,
+  };
+}
+// Programmatic scrolls used by the auto-correct path. They flag the
+// existing bounce-back machinery (xExpected + xLockUntil) so the
+// resulting scroll event does not cycle back as a "user" scroll.
+function alignmentSmoothScrollPreviewTo(y) {
+  const iframe = activeIframe();
+  const win = iframe && iframe.contentWindow;
+  if (!win) return;
+  const target = clampPreviewY(win, y);
+  previewExpected = Math.round(target);
+  previewLockUntil = Date.now() + SMOOTH_LOCKOUT_MS;
+  win.scrollTo({ top: target, left: 0, behavior: 'smooth' });
+}
+function alignmentSmoothScrollEditorTo(y) {
+  if (!cm) return;
+  const sd = cm.scrollDOM;
+  const target = clampEditorY(sd, y);
+  editorExpected = Math.round(target);
+  editorLockUntil = Date.now() + SMOOTH_LOCKOUT_MS;
+  sd.scrollTo({ top: target, left: 0, behavior: 'smooth' });
+}
+function isSmoothScrollLocked() {
+  return Date.now() < Math.max(editorLockUntil, previewLockUntil);
+}
+function initAlignmentTicks() {
+  if (!window.md4xAlignmentTicks) return;
+  const editorPane  = document.getElementById('editor-pane');
+  const previewPane = document.getElementById('preview-pane');
+  window.md4xAlignmentTicks.init({
+    editorPane,
+    previewPane,
+    bridge: {
+      getEditorState:        getEditorAlignmentState,
+      getPreviewState:       getPreviewAlignmentState,
+      isSyncSuspended,
+      isSmoothScrollLocked,
+      smoothScrollPreviewTo: alignmentSmoothScrollPreviewTo,
+      smoothScrollEditorTo:  alignmentSmoothScrollEditorTo,
+    },
+  });
+}
+function scheduleAlignmentTicks() {
+  if (window.md4xAlignmentTicks) window.md4xAlignmentTicks.schedule();
 }
 
 // Diagnostic: dump current alignment to the console. Useful to verify the
@@ -959,8 +1080,9 @@ function applyRender(iframe, html, userMacrosJson) {
   // mermaid re-layouts that finish AFTER applyRender returns.
   invalidatePreviewBlocksCache();
   rafSchedSync('editorCursor', syncPreviewFromCursor);
-  setTimeout(() => { invalidatePreviewBlocksCache(); syncPreviewFromCursor(); }, 250);
-  setTimeout(() => { invalidatePreviewBlocksCache(); syncPreviewFromCursor(); }, 1000);
+  setTimeout(() => { invalidatePreviewBlocksCache(); syncPreviewFromCursor(); scheduleAlignmentTicks(); }, 250);
+  setTimeout(() => { invalidatePreviewBlocksCache(); syncPreviewFromCursor(); scheduleAlignmentTicks(); }, 1000);
+  scheduleAlignmentTicks();
 }
 
 function bootstrapIframe(iframe, html) {
@@ -986,8 +1108,18 @@ function attachIframeHandlers(iframe) {
   // programmatic scrollTo (consumeExpectedScroll matches and returns true).
   win.addEventListener('scroll', () => {
     if (iframe !== activeIframe()) return;
+    scheduleAlignmentTicks();
     if (consumeExpectedScroll('preview', win.scrollY)) return;
     rafSchedSync('preview', () => syncEditorFromPreview(win));
+  }, { passive: true });
+  // Driver detection: real wheel/touchmove on preview iframe → preview is driver.
+  win.addEventListener('wheel', () => {
+    if (iframe !== activeIframe()) return;
+    if (window.md4xAlignmentTicks) window.md4xAlignmentTicks.markUserScroll('preview');
+  }, { passive: true });
+  win.addEventListener('touchmove', () => {
+    if (iframe !== activeIframe()) return;
+    if (window.md4xAlignmentTicks) window.md4xAlignmentTicks.markUserScroll('preview');
   }, { passive: true });
   // Click-on-preview → smooth-scroll editor to the matching block.
   // Walk up from the click target to find the top-level body child,
@@ -1146,8 +1278,9 @@ async function switchTemplate(newTemplate) {
   // after KaTeX/mermaid finish reflowing.
   invalidatePreviewBlocksCache();
   rafSchedSync('editorScroll', syncPreviewFromEditor);
-  setTimeout(() => { invalidatePreviewBlocksCache(); syncPreviewFromEditor(); }, 250);
-  setTimeout(() => { invalidatePreviewBlocksCache(); syncPreviewFromEditor(); }, 1000);
+  setTimeout(() => { invalidatePreviewBlocksCache(); syncPreviewFromEditor(); scheduleAlignmentTicks(); }, 250);
+  setTimeout(() => { invalidatePreviewBlocksCache(); syncPreviewFromEditor(); scheduleAlignmentTicks(); }, 1000);
+  scheduleAlignmentTicks();
   // Hack: WKWebView's wheel-event target stays latched on the OLD iframe
   // after a srcdoc swap — clicks/keys reach the new iframe but trackpad
   // scroll doesn't, until any resize invalidates the compositor's hit-test
@@ -1311,6 +1444,10 @@ gallery.addEventListener('click', (e) => { if (e.target === gallery) gallery.hid
     panes.classList.remove('dragging');
     document.body.style.cursor = '';
     document.body.style.userSelect = '';
+    if (window.md4xAlignmentTicks) {
+      window.md4xAlignmentTicks.setSplitterDragActive(false);
+      window.md4xAlignmentTicks.schedule();
+    }
   }
   resizer.addEventListener('mousedown', e => {
     dragging = true;
@@ -1320,6 +1457,7 @@ gallery.addEventListener('click', (e) => { if (e.target === gallery) gallery.hid
     panes.classList.add('dragging');
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
+    if (window.md4xAlignmentTicks) window.md4xAlignmentTicks.setSplitterDragActive(true);
     e.preventDefault();
   });
   document.addEventListener('mousemove', e => {
@@ -1329,7 +1467,8 @@ gallery.addEventListener('click', (e) => { if (e.target === gallery) gallery.hid
     editorPane.style.flex = 'none';
     editorPane.style.width = w + 'px';
     // Each move extends the suspension window so sync stays off until
-    // the user has stopped dragging for ~200ms.
+    // the user has stopped dragging for ~200ms. Skip alignment-ticks
+    // schedule during drag — the module gates work on its own drag flag.
     suspendSync(200);
   });
   document.addEventListener('mouseup', endDrag);
@@ -1484,7 +1623,7 @@ function syncSettingsUI() {
   populateSettingsTemplates();
   setDebounce.value = settings.debounceMs;
   setDebounceVal.textContent = `${settings.debounceMs} ms`;
-  setSliderFill(setDebounce, 50, 800, settings.debounceMs);
+  setSliderFill(setDebounce, 0, 800, settings.debounceMs);
   setZoom.value = settings.zoomPct;
   setZoomVal.textContent = `${settings.zoomPct}%`;
   setSliderFill(setZoom, 50, 200, settings.zoomPct);
@@ -1515,7 +1654,7 @@ setDebounce.addEventListener('input', () => {
   const v = parseInt(setDebounce.value, 10);
   settings.debounceMs = v;
   setDebounceVal.textContent = `${v} ms`;
-  setSliderFill(setDebounce, 50, 800, v);
+  setSliderFill(setDebounce, 0, 800, v);
   saveSettings();
 });
 setZoom.addEventListener('input', () => {
@@ -1620,10 +1759,21 @@ async function init() {
     if (update.docChanged || update.selectionSet) {
       rafSchedSync('editorCursor', syncPreviewFromCursor);
     }
+    if (update.docChanged || update.selectionSet || update.geometryChanged || update.viewportChanged) {
+      scheduleAlignmentTicks();
+    }
   });
   cm.scrollDOM.addEventListener('scroll', () => {
+    scheduleAlignmentTicks();
     if (consumeExpectedScroll('editor', cm.scrollDOM.scrollTop)) return;
     rafSchedSync('editorScroll', syncPreviewFromEditor);
+  }, { passive: true });
+  // Driver detection: real wheel/touchmove on editor → editor is driver.
+  cm.scrollDOM.addEventListener('wheel', () => {
+    if (window.md4xAlignmentTicks) window.md4xAlignmentTicks.markUserScroll('editor');
+  }, { passive: true });
+  cm.scrollDOM.addEventListener('touchmove', () => {
+    if (window.md4xAlignmentTicks) window.md4xAlignmentTicks.markUserScroll('editor');
   }, { passive: true });
 
   exportBtn.addEventListener('click', () => openExportDialog());
@@ -1632,6 +1782,8 @@ async function init() {
   updateCounts();
   syncWindowTitle();
   await switchTemplate(currentTemplate);
+  initAlignmentTicks();
+  scheduleAlignmentTicks();
   if (!editorText() && !currentFilePath) showWelcome();
 }
 
