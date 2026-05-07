@@ -21,6 +21,13 @@
         <span class="caret">▾</span>
       </button>
       <button id="export-btn">Export PDF<span class="kbd-hint">⌘E</span></button>
+      <button id="help-btn" aria-label="Help" title="Help ⌘?">
+        <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+          <circle cx="8" cy="8" r="6.5"/>
+          <path d="M5.7 6.0c.0-1.3 1.0-2.2 2.3-2.2s2.3.9 2.3 2.0-.7 1.6-1.4 2.0c-.7.4-1.0.9-1.0 1.6"/>
+          <circle cx="8" cy="11.7" r="0.6" fill="currentColor" stroke="none"/>
+        </svg>
+      </button>
       <button id="settings-btn" aria-label="Settings" title="Settings ⌘,">
         <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
           <circle cx="8" cy="8" r="2"/>
@@ -140,7 +147,7 @@
             <label class="set-label" for="set-debounce">Preview debounce</label>
             <span id="set-debounce-val" class="set-value">250 ms</span>
           </div>
-          <input type="range" id="set-debounce" class="set-slider" min="50" max="800" step="10" value="250">
+          <input type="range" id="set-debounce" class="set-slider" min="0" max="800" step="1" value="250">
           <p class="set-hint">faster preview ↔ less CPU</p>
         </section>
 
@@ -190,9 +197,23 @@
         <ul id="undef-list" class="undef-list"></ul>
       </div>
       <div class="undef-actions">
+        <button id="undef-help-btn" class="undef-btn-secondary" title="Open Help">?</button>
         <button id="undef-dismiss-btn" class="undef-btn-secondary" data-undef-dismiss>Close</button>
+        <button id="undef-inline-btn" class="undef-btn-secondary" title="Embed sidecar JSON into the document so the .md ships self-contained">Inline into document</button>
         <button id="undef-template-btn" class="undef-btn-primary">Generate template…</button>
       </div>
+    </div>
+  </div>
+
+  <!-- Generic help popup — renders bundled docs/help.md -->
+  <div id="help-modal" hidden>
+    <div class="help-scrim" data-help-dismiss></div>
+    <div class="help-card" role="dialog" aria-label="md4x Help">
+      <header class="help-card-header">
+        <h2>md4x Help</h2>
+        <button id="help-close" aria-label="Close" data-help-dismiss>✕</button>
+      </header>
+      <iframe id="help-iframe" title="Help" sandbox="allow-scripts allow-same-origin"></iframe>
     </div>
   </div>
 
@@ -210,6 +231,8 @@
   </div>
 
   <script src="vendor/cm6-bundle.js"></script>
+  <script src="alignment-math.js"></script>
+  <script src="alignment-ticks.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

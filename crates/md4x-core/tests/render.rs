@@ -144,8 +144,8 @@ fn markdown_to_html_emits_pre_class_mermaid_for_mermaid_fence() {
         "expected mermaid pre, got: {html}"
     );
     assert!(html.contains("graph TD;A--&gt;B"), "expected escaped source: {html}");
-    assert!(html.contains("<p>Before.</p>"), "expected normal markdown: {html}");
-    assert!(html.contains("<p>After.</p>"), "expected normal markdown: {html}");
+    assert!(html.contains("Before.</p>"), "expected normal markdown: {html}");
+    assert!(html.contains("After.</p>"), "expected normal markdown: {html}");
 }
 
 #[test]

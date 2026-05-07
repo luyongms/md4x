@@ -1994,28 +1994,30 @@ dependencies = [
 
 [[package]]
 name = "md4x"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "anyhow",
  "clap",
  "md4x-core",
+ "serde_json",
 ]
 
 [[package]]
 name = "md4x-core"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "anyhow",
  "chrono",
  "comrak",
  "include_dir",
  "percent-encoding",
+ "serde_json",
  "two-face",
 ]
 
 [[package]]
 name = "md4x-gui"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "anyhow",
  "md4x-core",

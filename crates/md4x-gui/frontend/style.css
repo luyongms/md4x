@@ -49,7 +49,7 @@
   --font-system: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Helvetica Neue", system-ui, sans-serif;
   --font-mono:   "JetBrains Mono", "Fira Code", "Cascadia Code", "IBM Plex Mono", "SF Mono", "Hack", ui-monospace, Menlo, Consolas, monospace;
   --font-serif:  "New York", "Iowan Old Style", "Charter", "Georgia", serif;
-  --ed-line-active: rgba(94, 92, 230, 0.20);
+  --ed-line-active: rgba(94, 92, 230, 0.16);
 
   /* Shadows */
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06);
@@ -370,36 +370,21 @@ body.theme-light .cm-scroller::-webkit-scrollbar-thumb:hover { background: rgba(
    The wider hit area is the splitter itself; ::after is a transparent
    overlay extending a few px each way for "easier to grab". */
 #resizer {
-  width: 8px;
+  width: 2px;
   flex-shrink: 0;
   position: relative;
   cursor: col-resize;
-  background:
-    radial-gradient(circle 1.5px at 50% calc(50% - 8px), rgba(0,0,0,0.32) 100%, transparent),
-    radial-gradient(circle 1.5px at 50% 50%,             rgba(0,0,0,0.32) 100%, transparent),
-    radial-gradient(circle 1.5px at 50% calc(50% + 8px), rgba(0,0,0,0.32) 100%, transparent),
-    linear-gradient(to right, transparent, rgba(0,0,0,0.06) 50%, transparent);
+  background: rgba(0, 0, 0, 0.45);
   transition: background 140ms ease;
 }
+/* Hit area extender for easier drag grab. */
 #resizer::after {
   content: "";
   position: absolute;
-  top: 0; bottom: 0; left: -3px; right: -3px;
+  top: 0; bottom: 0; left: -4px; right: -4px;
 }
-#resizer:hover {
-  background:
-    radial-gradient(circle 1.8px at 50% calc(50% - 10px), var(--md4x-accent) 100%, transparent),
-    radial-gradient(circle 1.8px at 50% 50%,              var(--md4x-accent) 100%, transparent),
-    radial-gradient(circle 1.8px at 50% calc(50% + 10px), var(--md4x-accent) 100%, transparent),
-    linear-gradient(to right, transparent, var(--md4x-accent-soft) 50%, transparent);
-}
-#resizer.dragging {
-  background:
-    radial-gradient(circle 2px at 50% calc(50% - 10px), var(--md4x-accent) 100%, transparent),
-    radial-gradient(circle 2px at 50% 50%,              var(--md4x-accent) 100%, transparent),
-    radial-gradient(circle 2px at 50% calc(50% + 10px), var(--md4x-accent) 100%, transparent),
-    linear-gradient(to right, transparent, var(--md4x-accent-tint) 50%, transparent);
-}
+#resizer:hover    { background: var(--md4x-accent); }
+#resizer.dragging { background: var(--md4x-accent); }
 
 /* Preview pane */
 #preview-pane {
@@ -1292,3 +1277,105 @@ body.theme-light {
   --ed-line-active: rgba(94, 92, 230, 0.10);
 }
 body.theme-light .seg-opt[data-theme="light"] { color: #1c1c1e; }
+
+/* ── Help modal (v0.2.4) ────────────────────────────────────────────────── */
+#help-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+#help-modal .help-scrim {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+}
+#help-modal .help-card {
+  position: relative;
+  width: min(900px, 92vw);
+  height: min(80vh, 800px);
+  background: var(--md4x-bg, #fff);
+  border-radius: 10px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+#help-modal .help-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+  flex-shrink: 0;
+}
+#help-modal .help-card-header h2 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+#help-modal #help-close {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 16px;
+  color: var(--md4x-text-secondary);
+  padding: 4px 8px;
+}
+#help-modal #help-iframe {
+  flex: 1;
+  border: none;
+  width: 100%;
+  background: #fff;
+}
+
+/* ── Scroll-alignment ticks (v0.2.3) ────────────────────────────────────── */
+/* Two thin overlay strips on splitter-facing edges of editor and preview
+   panes. Faint per-block ticks + a red current tick at the seam where
+   currentBlock begins. See docs/spec/v0.2.3-scroll-alignment-ticks.md */
+.md4x-tick-strip {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  pointer-events: none;
+  z-index: 100;
+  /* Strip itself is invisible — only the ticks inside are drawn. */
+}
+.md4x-tick-strip-editor  { right: 0; }
+.md4x-tick-strip-preview { left:  0; }
+.md4x-tick-strip .tick {
+  position: absolute;
+  border-radius: 1px;
+}
+/* Editor pane is dark by default → light ticks, thin + high contrast. */
+.md4x-tick-strip-editor .tick-block   { background: rgba(255, 255, 255, 0.85); height: 1px; }
+.md4x-tick-strip-editor .tick-heading { background: rgba(255, 255, 255, 1.00); height: 2px; }
+/* Preview pane is light → dark ticks, thin + high contrast. */
+.md4x-tick-strip-preview .tick-block   { background: rgba(0, 0, 0, 0.75); height: 1px; }
+.md4x-tick-strip-preview .tick-heading { background: rgba(0, 0, 0, 1.00); height: 2px; }
+/* Light editor theme override. */
+body.theme-light .md4x-tick-strip-editor .tick-block   { background: rgba(0, 0, 0, 0.75); }
+body.theme-light .md4x-tick-strip-editor .tick-heading { background: rgba(0, 0, 0, 1.00); }
+.md4x-tick-strip .tick-current {
+  background: #e63946;
+  height: 12px;
+  border-radius: 0;
+  box-shadow: 0 0 6px rgba(230, 57, 70, 0.55);
+}
+/* Editor (right-side strip) → arrowhead points right toward splitter. */
+.md4x-tick-strip-editor .tick-current {
+  clip-path: polygon(0% 25%, 60% 25%, 60% 0%, 100% 50%, 60% 100%, 60% 75%, 0% 75%);
+}
+/* Preview (left-side strip) → arrowhead points left toward splitter. */
+.md4x-tick-strip-preview .tick-current {
+  clip-path: polygon(100% 25%, 40% 25%, 40% 0%, 0% 50%, 40% 100%, 40% 75%, 100% 75%);
+}
+/* Off-viewport indicator — dim + slightly thinner. */
+.md4x-tick-strip .tick-current-off {
+  background: rgba(230, 57, 70, 0.55);
+  box-shadow: none;
+}
+/* Hide red current tick during splitter drag — faint ticks remain. */
+.md4x-tick-strip.drag .tick-current { opacity: 0; }

@@ -193,7 +193,7 @@ impl Default for Registry {
             Box::new(admonish::AdmonishPlugin),
             Box::new(numthm::NumthmPlugin),
             Box::new(mermaid::MermaidPlugin),
-            Box::new(macros::MacrosPlugin),
+            Box::new(macros::MacrosPlugin::new()),
             Box::new(katex::KatexPlugin),
             Box::new(syntect::SyntectPlugin::new()),
         ])

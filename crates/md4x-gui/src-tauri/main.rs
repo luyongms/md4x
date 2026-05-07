@@ -2,6 +2,10 @@ use std::path::PathBuf;
 
 use serde::Serialize;
 
+/// Bundled help text. Compiled in via include_str! so the GUI can show
+/// it without depending on docs/ being on disk at runtime.
+const HELP_MD: &str = include_str!("../../../docs/help.md");
+
 #[derive(Serialize)]
 struct RenderedDoc {
     html: String,
@@ -38,9 +42,15 @@ fn body_padding_for(template: &str) -> &'static str {
 /// Thin GUI-side wrapper around the kernel's macros plugin loader, so
 /// the lookup convention (sibling `<stem>.macros.json` /
 /// `<full-name>.macros.json`) lives in ONE place — `plugins::macros`.
-fn load_user_macros(source_path: Option<&str>) -> String {
+/// Compute effective macros JSON for a render: inline block (extracted
+/// from the markdown source) merged with the sidecar `.macros.json`.
+/// Inline wins on per-key conflict — same precedence the plugin uses
+/// at PDF render time, so the GUI preview matches the CLI output.
+fn effective_user_macros(md: &str, source_path: Option<&str>) -> String {
     let pb = source_path.map(std::path::PathBuf::from);
-    md4x_core::plugins::macros::load_user_macros(pb.as_deref())
+    let (_, inline_json) = md4x_core::plugins::macros::extract_inline_macros(md);
+    let sidecar = md4x_core::plugins::macros::load_user_macros(pb.as_deref());
+    md4x_core::plugins::macros::merge_macros(inline_json.as_deref(), sidecar.as_deref())
 }
 
 #[tauri::command]
@@ -63,7 +73,7 @@ fn render_html(
     let _head_html = registry.head_html();
     let init_js = registry.init_js();
     let body_padding = body_padding_for(&template);
-    let user_macros_json = load_user_macros(source_path.as_deref());
+    let user_macros_json = effective_user_macros(&md, source_path.as_deref());
 
     // Build full self-contained HTML. Scripts served via md4x:// custom protocol.
     // CSS is inline (small, ~10KB). Scripts are URL references (large, loaded once by browser cache).
@@ -251,6 +261,56 @@ fn reveal_in_finder(path: String) -> Result<(), String> {
     Ok(())
 }
 
+#[derive(Serialize)]
+struct InlineResult {
+    path: String,
+    new_content: String,
+}
+
+/// Render the bundled docs/help.md into HTML using the same render
+/// pipeline the live preview uses. Returned to the GUI which loads it
+/// into the help modal's iframe via srcdoc.
+#[tauri::command]
+fn render_help_html(template: String) -> Result<RenderedDoc, String> {
+    render_html(HELP_MD.to_string(), template, None)
+}
+
+/// Inline a merged macros block into the markdown buffer.
+///
+/// `md` is the LIVE editor buffer (which may include unsaved edits).
+/// We strip any existing inline block, merge with the sidecar
+/// `.macros.json` if present (inline-wins on conflict), build a new
+/// pretty-printed block, append it, and write the result to disk —
+/// then return the new content so the editor buffer can refresh in
+/// place.
+#[tauri::command]
+fn inline_macros_into_source(source_path: String, md: String) -> Result<InlineResult, String> {
+    use md4x_core::plugins::macros as m;
+    let pb = PathBuf::from(&source_path);
+
+    let (stripped, existing_inline) = m::extract_inline_macros(&md);
+    let sidecar = m::load_user_macros(Some(&pb));
+    if existing_inline.is_none() && sidecar.is_none() {
+        return Err(format!(
+            "no macros to inline — no sidecar .macros.json next to {} and no existing inline block",
+            pb.display()
+        ));
+    }
+    let merged = m::merge_macros(existing_inline.as_deref(), sidecar.as_deref());
+    if merged.is_empty() {
+        return Err("macros sources parsed empty — nothing to inline".into());
+    }
+    let block = m::build_inline_block(&merged).map_err(|e| e)?;
+
+    let mut new_content = stripped;
+    if !new_content.ends_with('\n') { new_content.push('\n'); }
+    new_content.push('\n');
+    new_content.push_str(&block);
+
+    std::fs::write(&pb, new_content.as_bytes()).map_err(|e| e.to_string())?;
+    Ok(InlineResult { path: pb.display().to_string(), new_content })
+}
+
 #[tauri::command]
 fn read_file(path: String) -> Result<OpenedFile, String> {
     let pb = PathBuf::from(&path);
@@ -415,7 +475,8 @@ fn main() {
             list_templates, render_html, export_pdf, open_file,
             read_file, save_file, save_file_as, close_window,
             reveal_in_finder, pick_save_dir, default_save_dir,
-            write_macros_template,
+            write_macros_template, inline_macros_into_source,
+            render_help_html,
         ])
         .setup(|app| {
             use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
@@ -487,8 +548,15 @@ fn main() {
                 .close_window()
                 .build()?;
 
+            let help_item = MenuItemBuilder::with_id("help", "md4x Help")
+                .accelerator("CmdOrCtrl+?")
+                .build(app)?;
+            let help_submenu = SubmenuBuilder::new(app, "Help")
+                .item(&help_item)
+                .build()?;
+
             let menu = MenuBuilder::new(app)
-                .items(&[&app_submenu, &file_submenu, &edit_submenu, &window_submenu])
+                .items(&[&app_submenu, &file_submenu, &edit_submenu, &window_submenu, &help_submenu])
                 .build()?;
             app.set_menu(menu)?;
 
@@ -502,6 +570,7 @@ fn main() {
                     "save_as"  => "window.saveFileAs && window.saveFileAs();",
                     "export"   => "document.getElementById(\"export-btn\").click();",
                     "settings" => "window.openSettings && window.openSettings();",
+                    "help"     => "window.openHelp && window.openHelp();",
                     _ => return,
                 };
                 if let Some(w) = app.get_webview_window("main") {
