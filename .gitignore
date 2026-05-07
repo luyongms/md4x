@@ -16,6 +16,9 @@ crates/md4x-gui/gen/
 # Personal scratch / sample input + output
 /misc/
 
+# Throwaway sync-probe exploration harness
+/scratch/
+
 # Design handoff drops (large, regenerable from upstream design project)
 /design_handoff_*/
 

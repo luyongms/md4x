@@ -225,59 +225,383 @@ function updateCounts() {
   countsEl.textContent = parts.join(' · ');
 }
 
-// ── Bidirectional scroll sync (proportional / ratio) ────────────────────────
-// Map editor scrollTop / scrollMax → preview scrollTop / scrollMax.
+// ── Bidirectional scroll sync (block-aligned) ───────────────────────────────
+// We map TOP-LEVEL SEMANTIC BLOCKS between sides:
+//   editor side: top-level children of the lezer-markdown Document tree
+//                (Paragraph, ATXHeading*, FencedCode, Blockquote, lists, …)
+//   preview side: top-level children of <body>, with admonish wrappers
+//                coalesced — the admonish preprocessor expands one fence into
+//                <html-open><body blocks><html-close>, so we collapse the run
+//                back into a single logical block to preserve k-th alignment.
 //
-// Bounce-back avoidance: when we programmatically set scrollTop on either
-// side, the resulting scroll event would ping back and re-sync the source,
-// potentially with a different rounded value (jitter). We track the last
-// value we *wrote* to each side and ignore scroll events that match it
-// within a small tolerance — those are the bounce-back events, not user
-// input. A time-based lock is unreliable because WKWebView fires scroll
-// events asynchronously across multiple frames.
-let editorExpected  = null; // scrollTop we just wrote to cm.scrollDOM
-let previewExpected = null; // scrollY  we just wrote to the iframe window
-const SCROLL_TOLERANCE_PX = 2;
+// Validated on 15 synthesized fixtures (text + math + mermaid + code +
+// admonish + numthm + mixed) under scratch/sync-probe/. Naive ordinal works
+// once admonish is coalesced; everything else (numthm, KaTeX, mermaid,
+// fenced code) preserves block count between lezer and comrak.
+//
+// Bounce-back avoidance: when we programmatically scroll either side, the
+// resulting scroll event would ping back and re-sync the source. We track
+// the last scroll position we WROTE to each side and ignore matches.
+let editorExpected  = null;
+let previewExpected = null;
+// Smooth-scroll lockout: when we initiate `behavior: 'smooth'` the browser
+// fires dozens of intermediate scroll events as the animation runs, each
+// at a different scrollY that won't equal `previewExpected`. A short
+// time-based lockout swallows all of them; after it expires the exact-
+// position check takes over again.
+let editorLockUntil  = 0;
+let previewLockUntil = 0;
+// Bumped from 2 → 6: large jumps (fast scroll, programmatic scrollTo on
+// long docs) can land 3–5px off due to fractional-pixel rounding inside
+// WebKit. Too-tight tolerance turned bounce-back events into "real" user
+// scrolls and triggered feedback loops.
+const SCROLL_TOLERANCE_PX = 6;
+// WebKit's smooth-scroll animation is ~280ms. Anything longer eats into
+// the user's window for following up with their own scroll.
+const SMOOTH_LOCKOUT_MS = 300;
+
+// Top-level lezer blocks in the current editor doc, with HTML-wrapper
+// coalesce so the count matches what the browser materialises in the
+// preview iframe. lezer treats `<div>...<blank>...md...<blank>...</div>`
+// as 3 sibling blocks (HTMLBlock, Paragraph, HTMLBlock); the browser
+// builds 1 element. We balance block-level open/close tags and merge
+// siblings until the run is balanced.
+let _lezerBlocksCache = { docVer: -1, blocks: null };
+const _BLOCK_HTML_TAGS = ["div", "details", "section", "article", "aside",
+                          "header", "footer", "nav", "blockquote", "figure"];
+const _TAG_RE = /<\s*(\/?)\s*([a-zA-Z][a-zA-Z0-9]*)\b[^>]*?(\/?)\s*>/g;
+function _tagBalance(text) {
+  let net = 0;
+  for (const m of text.matchAll(_TAG_RE)) {
+    const tag = m[2].toLowerCase();
+    if (_BLOCK_HTML_TAGS.indexOf(tag) === -1) continue;
+    if (m[3] === '/') continue;
+    if (m[1] === '/') net--; else net++;
+  }
+  return net;
+}
+// Cached lezer-markdown parser (the LanguageSupport built once and reused).
+// Using parser.parse() directly is SYNCHRONOUS and complete, unlike
+// CM.syntaxTree(state) which returns the incremental parse — for large
+// docs (1000+ blocks) the incremental tree is partial and silently under-
+// counts top-level children, breaking ordinal alignment.
+let _mdParser = null;
+function getLezerBlocks() {
+  if (!cm) return [];
+  const ver = cm.state.doc.length + ':' + cm.state.doc.lineCount;
+  if (_lezerBlocksCache.docVer === ver) return _lezerBlocksCache.blocks;
+  if (!_mdParser) {
+    try { _mdParser = CM.markdown().language.parser; }
+    catch (_) { return []; }
+  }
+  const text = cm.state.doc.toString();
+  const tree = _mdParser.parse(text);
+  const raw = [];
+  const cur = tree.cursor();
+  if (cur.firstChild()) {
+    do {
+      // CommentBlock (HTML comments) have no DOM element counterpart —
+      // browser parses them as comment nodes, which are not in
+      // body.children. Skip on the editor side to keep ordinal alignment.
+      if (cur.name === 'CommentBlock') continue;
+      raw.push({ from: cur.from, to: cur.to, kind: cur.name });
+    } while (cur.nextSibling());
+  }
+  // Coalesce unbalanced HTMLBlock runs with following siblings.
+  const blocks = [];
+  let i = 0;
+  while (i < raw.length) {
+    const b = raw[i];
+    if (b.kind !== 'HTMLBlock') { blocks.push(b); i++; continue; }
+    let net = _tagBalance(cm.state.doc.sliceString(b.from, b.to));
+    if (net <= 0) { blocks.push(b); i++; continue; }
+    let j = i + 1;
+    while (j < raw.length && net > 0) {
+      net += _tagBalance(cm.state.doc.sliceString(raw[j].from, raw[j].to));
+      j++;
+    }
+    if (net !== 0) { blocks.push(b); i++; continue; }
+    blocks.push({ from: b.from, to: raw[j - 1].to, kind: 'HTMLBlock' });
+    i = j;
+  }
+  _lezerBlocksCache = { docVer: ver, blocks };
+  return blocks;
+}
+
+// Top-level preview blocks, with admonish coalesce. Each returned block
+// carries the actual DOM element to scroll to (the wrapper for admonish).
+function getPreviewBlocks(doc) {
+  if (!doc || !doc.body) return [];
+  const out = [];
+  for (const el of doc.body.children) {
+    if (el.nodeType !== 1) continue;
+    const tag = el.tagName;
+    if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'LINK') continue;
+    const cls = (el.className || '') + '';
+    if (/\bcover-page\b/.test(cls)) continue;
+    const isAdmonish = (tag === 'DIV' || tag === 'DETAILS') &&
+                       /\badmonish\b/.test(cls);
+    // Comrak attaches data-sourcepos to every authored block-level element.
+    // Runtime-injected chrome (mermaid CSS holders, katex display wrappers
+    // hoisted to body, etc.) does not. Admonish OUTER wrappers are
+    // preprocessor-emitted HTML so they have no sourcepos but ARE authored
+    // content — keep them. Otherwise require data-sourcepos.
+    if (!isAdmonish && !el.hasAttribute('data-sourcepos')) continue;
+    out.push({ el, kind: isAdmonish ? 'admonish' : tag });
+  }
+  return out;
+}
+
+// Find the lezer block index that contains a given doc position.
+function lezerBlockIndexAtPos(blocks, pos) {
+  if (!blocks.length) return -1;
+  for (let i = 0; i < blocks.length; i++) {
+    if (pos < blocks[i].from) return Math.max(0, i - 1);
+    if (pos <= blocks[i].to) return i;
+  }
+  return blocks.length - 1;
+}
+
+// Document-Y of an element inside the preview iframe. offsetTop lies when
+// the cover-page is position: absolute / fixed (the H1 reports top:0 even
+// though the cover sits above it). getBoundingClientRect + scrollY gives
+// the true Y in document coordinates.
+function elDocTop(el, win) {
+  return el.getBoundingClientRect().top + win.scrollY;
+}
+
+// Per-render cache of (blocks, doc-top Ys). Without this, every scroll
+// event called getBoundingClientRect on each of N preview blocks (1000+
+// in long docs), forcing N synchronous layouts. Under fast preview scroll
+// the handler couldn't keep up — events queued, the bounce-back machinery
+// got out of phase, and the editor stopped tracking. Invalidated on each
+// applyRender via invalidatePreviewBlocksCache().
+let _previewBlocksCache = { iframe: null, blocks: null, tops: null };
+function invalidatePreviewBlocksCache() {
+  _previewBlocksCache = { iframe: null, blocks: null, tops: null };
+}
+function getPreviewBlocksCached(iframe) {
+  if (_previewBlocksCache.iframe === iframe && _previewBlocksCache.blocks)
+    return _previewBlocksCache;
+  const win = iframe.contentWindow;
+  const doc = win && win.document;
+  const blocks = getPreviewBlocks(doc);
+  // Read all offsets in one pass — forces ONE layout instead of N.
+  const tops = new Array(blocks.length);
+  for (let i = 0; i < blocks.length; i++) tops[i] = elDocTop(blocks[i].el, win);
+  _previewBlocksCache = { iframe, blocks, tops };
+  return _previewBlocksCache;
+}
+
+// Binary search: largest i such that tops[i] <= scrollY + 4.
+function previewBlockIndexAtScroll(tops, scrollY) {
+  if (!tops.length) return -1;
+  const target = scrollY + 4;
+  let lo = 0, hi = tops.length - 1, ans = 0;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (tops[mid] <= target) { ans = mid; lo = mid + 1; }
+    else hi = mid - 1;
+  }
+  return ans;
+}
+
+// Clamp `y` into [0, scrollMax] for the given window so previewExpected
+// matches what the browser will ACTUALLY scroll to. Without this, if y
+// exceeds documentElement.scrollHeight - innerHeight, win.scrollTo silently
+// clamps but previewExpected holds the unclamped value — the bounce-back
+// event then comes in with a different scrollY, fails consumeExpectedScroll,
+// and triggers syncEditorFromPreview, which kicks the editor back. Cue the
+// feedback loop that lands the preview at end-of-doc on fast editor scroll.
+function clampPreviewY(win, y) {
+  const max = Math.max(0, win.document.documentElement.scrollHeight - win.innerHeight);
+  return Math.max(0, Math.min(y, max));
+}
+function clampEditorY(sd, y) {
+  const max = Math.max(0, sd.scrollHeight - sd.clientHeight);
+  return Math.max(0, Math.min(y, max));
+}
+
+// Visual-position match: place the matching preview block at the SAME
+// vertical offset within the preview viewport as the editor block sits in
+// the editor viewport. Otherwise the preview block always lands at the
+// preview's top regardless of where the editor block actually appears.
+function editorBlockYInViewport(blockFromPos, sd) {
+  try {
+    const c = cm.coordsAtPos(blockFromPos);
+    if (!c) return 0;
+    return c.top - sd.getBoundingClientRect().top;
+  } catch (_) { return 0; }
+}
 
 function syncPreviewFromEditor() {
   if (!cm) return;
   const iframe = activeIframe();
   const win = iframe.contentWindow;
-  if (!win || !win.document || !win.document.documentElement) return;
+  if (!win || !win.document || !win.document.body) return;
   const sd = cm.scrollDOM;
-  const editorMax = sd.scrollHeight - sd.clientHeight;
-  if (editorMax <= 0) return;
-  const ratio = sd.scrollTop / editorMax;
-  const previewMax = win.document.documentElement.scrollHeight - win.innerHeight;
-  if (previewMax <= 0) return;
-  const target = ratio * previewMax;
+  const lBlocks = getLezerBlocks();
+  const cache = getPreviewBlocksCached(iframe);
+  if (!lBlocks.length || !cache.blocks.length) return;
+  // Editor anchor: which doc position is at the top of the viewport.
+  // Clamp scrollTop into the valid range — fast trackpad / momentum
+  // scrolls can transiently report values past scrollMax, which makes
+  // lineBlockAtHeight return the last line and pins us at doc end.
+  const sy = clampEditorY(sd, sd.scrollTop);
+  let topPos;
+  try {
+    const info = cm.lineBlockAtHeight(sy);
+    topPos = info && info.from != null ? info.from : 0;
+  } catch (_) { topPos = 0; }
+  const k = lezerBlockIndexAtPos(lBlocks, topPos);
+  const idx = Math.min(k, cache.blocks.length - 1);
+  if (idx < 0) return;
+  // Where does this block START in the editor viewport? Subtract that from
+  // the preview block's doc-Y so it lands at the same viewport offset.
+  const blockYInView = editorBlockYInViewport(lBlocks[k].from, sd);
+  const target = clampPreviewY(win, cache.tops[idx] - blockYInView);
   previewExpected = Math.round(target);
   win.scrollTo(0, target);
 }
 
+// Cursor-anchored sync: find the lezer block containing the cursor head
+// and scroll the preview so that block's top is at the viewport top.
+// Used when the user types or clicks in the editor — pure-scroll-anchored
+// sync would miss those events because the editor scroll position usually
+// doesn't change on typing.
+function syncPreviewFromCursor() {
+  if (!cm) return;
+  const iframe = activeIframe();
+  const win = iframe.contentWindow;
+  if (!win || !win.document || !win.document.body) return;
+  const lBlocks = getLezerBlocks();
+  const cache = getPreviewBlocksCached(iframe);
+  if (!lBlocks.length || !cache.blocks.length) return;
+  const head = cm.state.selection.main.head;
+  const k = lezerBlockIndexAtPos(lBlocks, head);
+  const idx = Math.min(k, cache.blocks.length - 1);
+  if (idx < 0) return;
+  // Force-sync paths (click, type) re-measure the target block live —
+  // the cached top might be stale if mermaid/katex finished resizing
+  // after the cache was built. One bounding-rect read is cheap.
+  const liveTop = elDocTop(cache.blocks[idx].el, win);
+  // Cursor's block in editor viewport — preserve same Y in preview.
+  const sd = cm.scrollDOM;
+  const blockYInView = editorBlockYInViewport(lBlocks[k].from, sd);
+  const target = clampPreviewY(win, liveTop - blockYInView);
+  previewExpected = Math.round(target);
+  previewLockUntil = Date.now() + SMOOTH_LOCKOUT_MS;
+  win.scrollTo({ top: target, left: 0, behavior: 'smooth' });
+}
+
 function syncEditorFromPreview(win) {
   if (!cm) return;
-  if (!win || !win.document || !win.document.documentElement) return;
-  const previewMax = win.document.documentElement.scrollHeight - win.innerHeight;
-  if (previewMax <= 0) return;
-  const ratio = win.scrollY / previewMax;
+  if (!win || !win.document || !win.document.body) return;
+  const iframe = activeIframe();
+  if (iframe.contentWindow !== win) return;
   const sd = cm.scrollDOM;
-  const editorMax = sd.scrollHeight - sd.clientHeight;
-  if (editorMax <= 0) return;
-  const target = ratio * editorMax;
+  const lBlocks = getLezerBlocks();
+  const cache = getPreviewBlocksCached(iframe);
+  if (!lBlocks.length || !cache.blocks.length) return;
+  const k = previewBlockIndexAtScroll(cache.tops, win.scrollY);
+  const idx = Math.min(k, lBlocks.length - 1);
+  if (idx < 0) return;
+  const fromPos = lBlocks[idx].from;
+  // Where does the preview's anchor block sit in the preview viewport?
+  // Preserve that same offset on the editor side.
+  const previewBlockYInView = cache.tops[k] - win.scrollY;
+  let target;
+  try {
+    const c = cm.coordsAtPos(fromPos);
+    if (!c) { target = null; }
+    else {
+      // Editor block's current Y in editor viewport, then shift by the
+      // delta needed to place it at previewBlockYInView.
+      const blockYInEditor = c.top - sd.getBoundingClientRect().top;
+      target = sd.scrollTop + (blockYInEditor - previewBlockYInView);
+    }
+  } catch (_) { target = null; }
+  if (target == null) return;
+  target = clampEditorY(sd, target);
   editorExpected = Math.round(target);
   sd.scrollTop = target;
 }
 
-// Returns true if the incoming scroll position matches what we just wrote
-// (i.e. it's our own bounce-back, not a user scroll). Clears the expected
-// value either way — only the FIRST matching event is suppressed.
 function consumeExpectedScroll(side, currentPos) {
+  const lockUntil = side === 'editor' ? editorLockUntil : previewLockUntil;
+  if (Date.now() < lockUntil) return true; // smooth scroll in progress
   const ref = side === 'editor' ? editorExpected : previewExpected;
   if (side === 'editor') editorExpected = null;
   else                   previewExpected = null;
   return ref !== null && Math.abs(Math.round(currentPos) - ref) <= SCROLL_TOLERANCE_PX;
 }
+
+// Click-on-preview: walk up from the click target to find the top-level
+// preview block it belongs to, then smooth-scroll the editor to the
+// corresponding lezer block.
+function syncEditorFromPreviewClick(win, target) {
+  if (!cm || !target) return;
+  const cache = getPreviewBlocksCached(activeIframe());
+  if (!cache.blocks.length) return;
+  // Walk up to a top-level body child.
+  let el = target;
+  const body = win.document.body;
+  while (el && el.parentElement && el.parentElement !== body) el = el.parentElement;
+  if (!el || el.parentElement !== body) return;
+  const idx = cache.blocks.findIndex(b => b.el === el);
+  if (idx < 0) return;
+  const lBlocks = getLezerBlocks();
+  const editorIdx = Math.min(idx, lBlocks.length - 1);
+  if (editorIdx < 0) return;
+  const fromPos = lBlocks[editorIdx].from;
+  const sd = cm.scrollDOM;
+  let target_y;
+  try {
+    const c = cm.coordsAtPos(fromPos);
+    if (!c) return;
+    const editorRect = sd.getBoundingClientRect();
+    const blockYInEditor = c.top - editorRect.top;
+    // Where the user clicked in the preview viewport.
+    const clickedRect = el.getBoundingClientRect();
+    const previewBlockYInView = clickedRect.top;
+    // Place editor block at the same Y in the editor viewport.
+    target_y = sd.scrollTop + (blockYInEditor - previewBlockYInView);
+  } catch (_) { return; }
+  target_y = clampEditorY(sd, target_y);
+  editorExpected = Math.round(target_y);
+  editorLockUntil = Date.now() + SMOOTH_LOCKOUT_MS;
+  sd.scrollTo({ top: target_y, left: 0, behavior: 'smooth' });
+}
+
+// rAF coalesce: under fast scroll, dozens of scroll events fire per frame.
+// Without coalescing each one would re-run the sync (and overwrite the
+// previousExpected mid-flight, defeating bounce-back detection). Once per
+// frame is enough — the user can't perceive faster than that anyway.
+const _rafSync = { editor: false, preview: false };
+function rafSchedSync(side, fn) {
+  if (_rafSync[side]) return;
+  _rafSync[side] = true;
+  requestAnimationFrame(() => { _rafSync[side] = false; fn(); });
+}
+
+// Diagnostic: dump current alignment to the console. Useful to verify the
+// admonish coalesce + ordinal pairing in the live runtime against the
+// scratch/sync-probe harness verdict.
+window.md4xSyncProbe = function () {
+  if (!cm) return { error: 'no editor' };
+  const iframe = activeIframe();
+  const doc = iframe.contentWindow && iframe.contentWindow.document;
+  const lBlocks = getLezerBlocks();
+  const pBlocks = getPreviewBlocks(doc);
+  const n = Math.min(lBlocks.length, pBlocks.length);
+  const pairs = [];
+  for (let k = 0; k < n; k++) {
+    const lText = cm.state.doc.sliceString(lBlocks[k].from, Math.min(lBlocks[k].to, lBlocks[k].from + 60));
+    const pText = (pBlocks[k].el.textContent || '').slice(0, 60).trim();
+    pairs.push({ k, lk: lBlocks[k].kind, pk: pBlocks[k].kind, lText, pText });
+  }
+  return { lezer_blocks: lBlocks.length, preview_blocks: pBlocks.length, pairs };
+};
 
 function setDirty(v) {
   const was = isDirty;
@@ -598,6 +922,16 @@ function applyRender(iframe, html, userMacrosJson) {
   rerenderNewBlocks(iframe);
   fitPage(iframe);
   scanAndReportUndefMacros(iframe);
+  // Block layout has just changed (DOM patch + KaTeX/mermaid kicked off).
+  // Drop the cached preview offsets so the next sync rebuilds them, then
+  // pull the preview to wherever the cursor is — otherwise typing wouldn't
+  // visibly update the preview position until the next scroll. We also
+  // re-invalidate-and-resync after short delays to catch async KaTeX /
+  // mermaid re-layouts that finish AFTER applyRender returns.
+  invalidatePreviewBlocksCache();
+  rafSchedSync('editor', syncPreviewFromCursor);
+  setTimeout(() => { invalidatePreviewBlocksCache(); syncPreviewFromCursor(); }, 250);
+  setTimeout(() => { invalidatePreviewBlocksCache(); syncPreviewFromCursor(); }, 1000);
 }
 
 function bootstrapIframe(iframe, html) {
@@ -624,15 +958,37 @@ function attachIframeHandlers(iframe) {
   win.addEventListener('scroll', () => {
     if (iframe !== activeIframe()) return;
     if (consumeExpectedScroll('preview', win.scrollY)) return;
-    syncEditorFromPreview(win);
+    rafSchedSync('preview', () => syncEditorFromPreview(win));
   }, { passive: true });
+  // Click-on-preview → smooth-scroll editor to the matching block.
+  // Walk up from the click target to find the top-level body child,
+  // match it against the preview block list, and jump editor to the
+  // corresponding lezer block.
+  doc.addEventListener('click', (e) => {
+    if (iframe !== activeIframe()) return;
+    syncEditorFromPreviewClick(win, e.target);
+  });
   fitPage(iframe);
   if (win.ResizeObserver) {
     new win.ResizeObserver(() => {
       scheduleTailTrim(iframe);
+      schedulePreviewCacheInvalidate();
     }).observe(doc.body);
   }
 }
+
+// Debounced cache-invalidator for layout-shifting events (window resize,
+// iframe body resize). Without debounce, dragging the window edge would
+// invalidate on every pixel and re-walk all preview blocks each scroll.
+let _previewCacheInvalidateTimer = null;
+function schedulePreviewCacheInvalidate() {
+  if (_previewCacheInvalidateTimer) clearTimeout(_previewCacheInvalidateTimer);
+  _previewCacheInvalidateTimer = setTimeout(() => {
+    _previewCacheInvalidateTimer = null;
+    invalidatePreviewBlocksCache();
+  }, 150);
+}
+window.addEventListener('resize', schedulePreviewCacheInvalidate);
 
 // ── Page fit (A4-zoom-to-fit, visually centered) ────────────────────────────
 const A4_WIDTH_MM = 210;
@@ -1186,10 +1542,16 @@ async function init() {
       updateCounts();
       scheduleRender();
     }
+    // Cursor moved (typing, click, arrow keys) or doc changed — anchor the
+    // preview to the cursor's block. rAF-coalesced so a paragraph of typing
+    // triggers at most one sync per frame.
+    if (update.docChanged || update.selectionSet) {
+      rafSchedSync('editor', syncPreviewFromCursor);
+    }
   });
   cm.scrollDOM.addEventListener('scroll', () => {
     if (consumeExpectedScroll('editor', cm.scrollDOM.scrollTop)) return;
-    syncPreviewFromEditor();
+    rafSchedSync('editor', syncPreviewFromEditor);
   }, { passive: true });
 
   exportBtn.addEventListener('click', () => openExportDialog());
