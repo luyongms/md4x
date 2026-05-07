@@ -567,6 +567,16 @@ fn main() {
                     _ => {}
                 });
             }
+            // Auto-open devtools only in debug builds. The tauri "devtools"
+            // cargo feature stays on so users can still right-click →
+            // Inspect Element if they need to debug a release build.
+            #[cfg(debug_assertions)]
+            {
+                use tauri::Manager;
+                if let Some(w) = app.get_webview_window("main") {
+                    w.open_devtools();
+                }
+            }
             Ok(())
         })
         .run(tauri::generate_context!())

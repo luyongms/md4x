@@ -93,4 +93,4 @@ docs/
 
 ## License
 
-TBD
+[AGPL-3.0-only](LICENSE).

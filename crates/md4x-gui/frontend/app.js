@@ -435,7 +435,7 @@ function editorBlockYInViewport(blockFromPos, sd) {
 }
 
 function syncPreviewFromEditor() {
-  if (!cm) return;
+  if (!cm || isSyncSuspended()) return;
   const iframe = activeIframe();
   const win = iframe.contentWindow;
   if (!win || !win.document || !win.document.body) return;
@@ -459,9 +459,30 @@ function syncPreviewFromEditor() {
   // Where does this block START in the editor viewport? Subtract that from
   // the preview block's doc-Y so it lands at the same viewport offset.
   const blockYInView = editorBlockYInViewport(lBlocks[k].from, sd);
-  const target = clampPreviewY(win, cache.tops[idx] - blockYInView);
+  let target = clampPreviewY(win, cache.tops[idx] - blockYInView);
+  // First-block special case: keep cover-page (and any other above-block-0
+  // chrome) visible when the editor is scrolled to its very top.
+  if (k === 0 && sd.scrollTop <= 4) target = 0;
   previewExpected = Math.round(target);
   win.scrollTo(0, target);
+}
+
+// Sync suspension: during splitter drag and active window resize, layout
+// is in flux every frame and any sync attempt would either fight the user
+// (programmatic scroll while they drag) or burn CPU on stale measurements.
+// suspendSync() can be called any number of times — each call extends the
+// release deadline. After `windowMs` of quiet, sync is automatically
+// resumed and the preview cache is invalidated so the next sync rebuilds.
+let _syncSuspendedUntil = 0;
+function isSyncSuspended() { return Date.now() < _syncSuspendedUntil; }
+let _syncResumeTimer = null;
+function suspendSync(windowMs = 200) {
+  _syncSuspendedUntil = Math.max(_syncSuspendedUntil, Date.now() + windowMs);
+  if (_syncResumeTimer) clearTimeout(_syncResumeTimer);
+  _syncResumeTimer = setTimeout(() => {
+    _syncResumeTimer = null;
+    invalidatePreviewBlocksCache();
+  }, windowMs + 20);
 }
 
 // Cursor-anchored sync: find the lezer block containing the cursor head
@@ -470,7 +491,7 @@ function syncPreviewFromEditor() {
 // sync would miss those events because the editor scroll position usually
 // doesn't change on typing.
 function syncPreviewFromCursor() {
-  if (!cm) return;
+  if (!cm || isSyncSuspended()) return;
   const iframe = activeIframe();
   const win = iframe.contentWindow;
   if (!win || !win.document || !win.document.body) return;
@@ -488,14 +509,18 @@ function syncPreviewFromCursor() {
   // Cursor's block in editor viewport — preserve same Y in preview.
   const sd = cm.scrollDOM;
   const blockYInView = editorBlockYInViewport(lBlocks[k].from, sd);
-  const target = clampPreviewY(win, liveTop - blockYInView);
+  let target = clampPreviewY(win, liveTop - blockYInView);
+  // Special case: cursor at the FIRST block of the doc → reveal everything
+  // ABOVE the first authored block (cover page, any preprocessor preamble).
+  // Otherwise the preview lands at the H1 and the user never sees the cover.
+  if (k === 0) target = 0;
   previewExpected = Math.round(target);
   previewLockUntil = Date.now() + SMOOTH_LOCKOUT_MS;
   win.scrollTo({ top: target, left: 0, behavior: 'smooth' });
 }
 
 function syncEditorFromPreview(win) {
-  if (!cm) return;
+  if (!cm || isSyncSuspended()) return;
   if (!win || !win.document || !win.document.body) return;
   const iframe = activeIframe();
   if (iframe.contentWindow !== win) return;
@@ -540,7 +565,7 @@ function consumeExpectedScroll(side, currentPos) {
 // preview block it belongs to, then smooth-scroll the editor to the
 // corresponding lezer block.
 function syncEditorFromPreviewClick(win, target) {
-  if (!cm || !target) return;
+  if (!cm || !target || isSyncSuspended()) return;
   const cache = getPreviewBlocksCached(activeIframe());
   if (!cache.blocks.length) return;
   // Walk up to a top-level body child.
@@ -577,11 +602,15 @@ function syncEditorFromPreviewClick(win, target) {
 // Without coalescing each one would re-run the sync (and overwrite the
 // previousExpected mid-flight, defeating bounce-back detection). Once per
 // frame is enough — the user can't perceive faster than that anyway.
-const _rafSync = { editor: false, preview: false };
-function rafSchedSync(side, fn) {
-  if (_rafSync[side]) return;
-  _rafSync[side] = true;
-  requestAnimationFrame(() => { _rafSync[side] = false; fn(); });
+//
+// Separate keys for editor-scroll, editor-cursor, and preview so a Cmd-Up
+// that triggers BOTH a CM auto-scroll AND a selection update schedules
+// both syncs for the same frame instead of one swallowing the other.
+const _rafSync = { editorScroll: false, editorCursor: false, preview: false };
+function rafSchedSync(key, fn) {
+  if (_rafSync[key]) return;
+  _rafSync[key] = true;
+  requestAnimationFrame(() => { _rafSync[key] = false; fn(); });
 }
 
 // Diagnostic: dump current alignment to the console. Useful to verify the
@@ -929,7 +958,7 @@ function applyRender(iframe, html, userMacrosJson) {
   // re-invalidate-and-resync after short delays to catch async KaTeX /
   // mermaid re-layouts that finish AFTER applyRender returns.
   invalidatePreviewBlocksCache();
-  rafSchedSync('editor', syncPreviewFromCursor);
+  rafSchedSync('editorCursor', syncPreviewFromCursor);
   setTimeout(() => { invalidatePreviewBlocksCache(); syncPreviewFromCursor(); }, 250);
   setTimeout(() => { invalidatePreviewBlocksCache(); syncPreviewFromCursor(); }, 1000);
 }
@@ -988,7 +1017,13 @@ function schedulePreviewCacheInvalidate() {
     invalidatePreviewBlocksCache();
   }, 150);
 }
-window.addEventListener('resize', schedulePreviewCacheInvalidate);
+window.addEventListener('resize', () => {
+  // Each resize event extends the suspension; once the user stops resizing
+  // for ~200ms, sync resumes and the next call rebuilds the cache with the
+  // new layout.
+  suspendSync(200);
+  schedulePreviewCacheInvalidate();
+});
 
 // ── Page fit (A4-zoom-to-fit, visually centered) ────────────────────────────
 const A4_WIDTH_MM = 210;
@@ -1104,6 +1139,42 @@ async function switchTemplate(newTemplate) {
   bootstrapped = true;
   lastUserMacrosJson = result.user_macros || '';
   scanAndReportUndefMacros(inactive);
+  // The new iframe sits at scrollY=0 — without this the preview would
+  // snap to the cover page while the editor stays where it was. Drop the
+  // stale cache (blocks belonged to the old iframe) and pull the new
+  // preview to wherever the editor's currently looking, with re-syncs
+  // after KaTeX/mermaid finish reflowing.
+  invalidatePreviewBlocksCache();
+  rafSchedSync('editorScroll', syncPreviewFromEditor);
+  setTimeout(() => { invalidatePreviewBlocksCache(); syncPreviewFromEditor(); }, 250);
+  setTimeout(() => { invalidatePreviewBlocksCache(); syncPreviewFromEditor(); }, 1000);
+  // Hack: WKWebView's wheel-event target stays latched on the OLD iframe
+  // after a srcdoc swap — clicks/keys reach the new iframe but trackpad
+  // scroll doesn't, until any resize invalidates the compositor's hit-test
+  // cache. Nudge the editor pane width by 1px and back to force that
+  // invalidation. Uses scheduleAfter so the nudge runs after layout settles.
+  nudgeSplitterWidth();
+}
+
+function nudgeSplitterWidth() {
+  const editorPane = document.getElementById('editor-pane');
+  if (!editorPane) return;
+  const rect = editorPane.getBoundingClientRect();
+  const startW = rect.width;
+  if (!startW) return;
+  // Need explicit width because the pane normally uses flex sizing; force
+  // it to a pixel value, perturb, then restore in the same flex mode.
+  const prevFlex = editorPane.style.flex;
+  const prevWidth = editorPane.style.width;
+  editorPane.style.flex = 'none';
+  editorPane.style.width = (startW + 1) + 'px';
+  requestAnimationFrame(() => {
+    editorPane.style.width = startW + 'px';
+    requestAnimationFrame(() => {
+      editorPane.style.flex = prevFlex;
+      editorPane.style.width = prevWidth;
+    });
+  });
 }
 
 // ── Template gallery (SVG previews from v0.2.0 mockups) ─────────────────────
@@ -1259,6 +1330,9 @@ gallery.addEventListener('click', (e) => { if (e.target === gallery) gallery.hid
     const w = Math.max(160, Math.min(total - 160, startW + e.clientX - startX));
     editorPane.style.flex = 'none';
     editorPane.style.width = w + 'px';
+    // Each move extends the suspension window so sync stays off until
+    // the user has stopped dragging for ~200ms.
+    suspendSync(200);
   });
   document.addEventListener('mouseup', endDrag);
   window.addEventListener('blur', endDrag);
@@ -1546,12 +1620,12 @@ async function init() {
     // preview to the cursor's block. rAF-coalesced so a paragraph of typing
     // triggers at most one sync per frame.
     if (update.docChanged || update.selectionSet) {
-      rafSchedSync('editor', syncPreviewFromCursor);
+      rafSchedSync('editorCursor', syncPreviewFromCursor);
     }
   });
   cm.scrollDOM.addEventListener('scroll', () => {
     if (consumeExpectedScroll('editor', cm.scrollDOM.scrollTop)) return;
-    rafSchedSync('editor', syncPreviewFromEditor);
+    rafSchedSync('editorScroll', syncPreviewFromEditor);
   }, { passive: true });
 
   exportBtn.addEventListener('click', () => openExportDialog());

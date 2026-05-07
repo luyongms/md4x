@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-md4x-core = { path = "../md4x-core" }
+md4x-core = { path = "../md4x-core", features = ["bundle-templates"] }
 anyhow.workspace = true
 serde.workspace = true
 serde_json.workspace = true
