@@ -837,24 +837,38 @@ const sbUndefCount    = document.getElementById('sb-undef-count');
 const undefModal      = document.getElementById('undef-modal');
 const undefList       = document.getElementById('undef-list');
 const undefTemplateBtn = document.getElementById('undef-template-btn');
+const undefInlineBtn  = document.getElementById('undef-inline-btn');
+const undefHelpBtn    = document.getElementById('undef-help-btn');
 const undefTargetName = document.getElementById('undef-target-name');
+const inlineHelpEl    = document.getElementById('inline-help');
 
 let lastUndefMacros = []; // sorted unique array
 
 function scanAndReportUndefMacros(iframe) {
   const doc = iframe.contentDocument;
   if (!doc) return;
-  // KaTeX wraps every render error in `<span class="katex-error" title="...">`
-  // where the title is the exact ParseError message — including the
-  // failing control sequence. The text content is the *whole* failing
-  // expression so we deliberately ignore it (it would over-report).
-  // Our KaTeX bundle doesn't expose the modern `errorCallback` option,
-  // so the title attribute is the only reliable signal.
+  // Two detection paths:
+  //   (1) KaTeX wraps hard parse errors in `<span class="katex-error" title="...">`.
+  //   (2) With `strict: 'ignore'` (our default — renders cleanly when macros
+  //       are present) KaTeX silently emits unknown control sequences as
+  //       LITERAL text inside .katex containers. The user sees gibberish
+  //       and gets no error span. We scan textContent for residual
+  //       `\command` tokens as a fallback signal.
   const set = new Set();
   doc.querySelectorAll('.katex-error[title]').forEach(el => {
     const title = el.getAttribute('title') || '';
     const m = title.match(/Undefined control sequence:\s*(\\[a-zA-Z]+)/);
     if (m) set.add(m[1]);
+  });
+  // Scan only `.katex-html` (visible render), NOT `.katex-mathml` which
+  // includes a `<annotation encoding="application/x-tex">` carrying the
+  // original TeX source — that would surface every macro as a false
+  // positive even when KaTeX rendered it correctly.
+  doc.querySelectorAll('.katex .katex-html').forEach(html => {
+    const text = html.textContent || '';
+    const matches = text.match(/\\[a-zA-Z]+/g);
+    if (!matches) return;
+    for (const tok of matches) set.add(tok);
   });
   lastUndefMacros = Array.from(set).sort();
   updateUndefPill();
@@ -885,9 +899,11 @@ function openUndefModal() {
     const stem = currentFilePath.split('/').pop().replace(/\.(md|markdown|mdx)$/i, '');
     undefTargetName.textContent = `${stem}.macros.json`;
     undefTemplateBtn.disabled = lastUndefMacros.length === 0;
+    undefInlineBtn.disabled = false;
   } else {
     undefTargetName.textContent = '<filename>.macros.json';
     undefTemplateBtn.disabled = true;
+    undefInlineBtn.disabled = true;
   }
   undefModal.hidden = false;
 }
@@ -923,11 +939,47 @@ undefTemplateBtn.addEventListener('click', async () => {
     if (settings.revealOnExport) {
       try { await invoke('reveal_in_finder', { path: result.path }); } catch {}
     }
+    // Side car changed → re-render so MacrosPlugin re-reads the file.
+    scheduleRender();
   } catch (e) {
     console.error('[md4x] write_macros_template failed', e);
     toast(`Template write failed: ${e}`);
   } finally {
     undefTemplateBtn.disabled = false;
+  }
+});
+
+undefInlineBtn.addEventListener('click', async () => {
+  if (!currentFilePath) {
+    toast('Save the document first — inline writes to a real .md file');
+    return;
+  }
+  if (isDirty) {
+    toast('Save unsaved edits first — inline rewrites the .md on disk');
+    return;
+  }
+  undefInlineBtn.disabled = true;
+  try {
+    const result = await invoke('inline_macros_into_source', {
+      sourcePath: currentFilePath,
+    });
+    // Replace in-memory editor content with the rewritten file (block
+    // appended at EOF). Mark clean — we just persisted to disk.
+    setEditorContent(result.new_content, result.path);
+    closeUndefModal();
+    toast(`Macros inlined → ${result.path.split('/').pop()}. The .md ships self-contained.`);
+  } catch (e) {
+    console.error('[md4x] inline_macros_into_source failed', e);
+    toast(`Inline failed: ${e}`);
+  } finally {
+    undefInlineBtn.disabled = false;
+  }
+});
+
+undefHelpBtn.addEventListener('click', () => { inlineHelpEl.hidden = false; });
+inlineHelpEl.addEventListener('click', (e) => {
+  if (e.target.dataset && 'inlineHelpDismiss' in e.target.dataset) {
+    inlineHelpEl.hidden = true;
   }
 });
 

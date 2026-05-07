@@ -190,8 +190,51 @@
         <ul id="undef-list" class="undef-list"></ul>
       </div>
       <div class="undef-actions">
+        <button id="undef-help-btn" class="undef-btn-secondary" title="About inline macros">?</button>
         <button id="undef-dismiss-btn" class="undef-btn-secondary" data-undef-dismiss>Close</button>
+        <button id="undef-inline-btn" class="undef-btn-secondary" title="Embed sidecar JSON into the document so the .md ships self-contained">Inline into document</button>
         <button id="undef-template-btn" class="undef-btn-primary">Generate template…</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- About inline macros help popup (styled like Export PDF dialog) -->
+  <div id="inline-help" hidden>
+    <div class="export-scrim" data-inline-help-dismiss></div>
+    <div class="export-card" role="dialog" aria-label="About inline macros">
+      <header class="export-card-header">
+        <h2>About inline macros</h2>
+      </header>
+      <div class="export-body">
+        <p class="export-note">
+          KaTeX user macros for a document live in a sibling
+          <code>&lt;file&gt;.macros.json</code>. Two artifacts must travel
+          together for correct render. Inline mode embeds the JSON inside
+          the markdown via an invisible HTML comment block at end-of-file
+          so the <code>.md</code> ships self-contained.
+        </p>
+        <p class="export-note">
+          <strong>Format.</strong>
+          <code>&lt;!-- md4x:macros</code> on its own line, JSON object
+          on the lines below, then <code>--&gt;</code> on its own line.
+          Block must be at the end of the file.
+        </p>
+        <p class="export-note">
+          <strong>Conflict policy.</strong> If both inline and sidecar
+          exist, the inline block wins on a per-key basis. The sidecar
+          becomes a working scratchpad. Run <code>md4x macros lint &lt;file&gt;</code>
+          to surface any divergence.
+        </p>
+        <p class="export-note">
+          <strong>CLI surface.</strong>
+          <code>md4x macros {inline, split, show, lint}</code>. The GUI
+          button is the same as <code>md4x macros inline</code>; the
+          sidecar JSON is kept by default — you can distribute the
+          <code>.md</code> on its own.
+        </p>
+      </div>
+      <div class="export-actions">
+        <button id="inline-help-close" class="export-btn-primary" data-inline-help-dismiss>Got it</button>
       </div>
     </div>
   </div>

@@ -38,9 +38,15 @@ fn body_padding_for(template: &str) -> &'static str {
 /// Thin GUI-side wrapper around the kernel's macros plugin loader, so
 /// the lookup convention (sibling `<stem>.macros.json` /
 /// `<full-name>.macros.json`) lives in ONE place — `plugins::macros`.
-fn load_user_macros(source_path: Option<&str>) -> String {
+/// Compute effective macros JSON for a render: inline block (extracted
+/// from the markdown source) merged with the sidecar `.macros.json`.
+/// Inline wins on per-key conflict — same precedence the plugin uses
+/// at PDF render time, so the GUI preview matches the CLI output.
+fn effective_user_macros(md: &str, source_path: Option<&str>) -> String {
     let pb = source_path.map(std::path::PathBuf::from);
-    md4x_core::plugins::macros::load_user_macros(pb.as_deref()).unwrap_or_default()
+    let (_, inline_json) = md4x_core::plugins::macros::extract_inline_macros(md);
+    let sidecar = md4x_core::plugins::macros::load_user_macros(pb.as_deref());
+    md4x_core::plugins::macros::merge_macros(inline_json.as_deref(), sidecar.as_deref())
 }
 
 #[tauri::command]
@@ -63,7 +69,7 @@ fn render_html(
     let _head_html = registry.head_html();
     let init_js = registry.init_js();
     let body_padding = body_padding_for(&template);
-    let user_macros_json = load_user_macros(source_path.as_deref());
+    let user_macros_json = effective_user_macros(&md, source_path.as_deref());
 
     // Build full self-contained HTML. Scripts served via md4x:// custom protocol.
     // CSS is inline (small, ~10KB). Scripts are URL references (large, loaded once by browser cache).
@@ -251,6 +257,27 @@ fn reveal_in_finder(path: String) -> Result<(), String> {
     Ok(())
 }
 
+#[derive(Serialize)]
+struct InlineResult {
+    path: String,
+    new_content: String,
+}
+
+/// Inline `<source>.macros.json` into the markdown at `source_path`.
+/// Sidecar JSON is read by the macros plugin's loader, embedded as an
+/// HTML-comment block at EOF, and the rewritten source is both written
+/// to disk AND returned so the GUI's editor buffer can refresh in
+/// place. Sidecar is kept on disk by default — caller deletes it if
+/// desired.
+#[tauri::command]
+fn inline_macros_into_source(source_path: String) -> Result<InlineResult, String> {
+    let pb = PathBuf::from(&source_path);
+    let new_content = md4x_core::plugins::macros::inline_into_source(&pb)
+        .map_err(|e| e.to_string())?;
+    std::fs::write(&pb, new_content.as_bytes()).map_err(|e| e.to_string())?;
+    Ok(InlineResult { path: pb.display().to_string(), new_content })
+}
+
 #[tauri::command]
 fn read_file(path: String) -> Result<OpenedFile, String> {
     let pb = PathBuf::from(&path);
@@ -415,7 +442,7 @@ fn main() {
             list_templates, render_html, export_pdf, open_file,
             read_file, save_file, save_file_as, close_window,
             reveal_in_finder, pick_save_dir, default_save_dir,
-            write_macros_template,
+            write_macros_template, inline_macros_into_source,
         ])
         .setup(|app| {
             use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
