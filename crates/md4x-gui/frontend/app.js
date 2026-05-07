@@ -544,15 +544,18 @@ function syncEditorFromPreview(win) {
   // Where does the preview's anchor block sit in the preview viewport?
   // Preserve that same offset on the editor side.
   const previewBlockYInView = cache.tops[k] - win.scrollY;
+  // CodeMirror only renders the on-screen viewport: coordsAtPos returns
+  // null for any position outside that window. Fast preview scrolls land
+  // far from the editor's current viewport, hitting null and stalling
+  // the sync. lineBlockAt is doc-Y based and works for any position.
   let target;
   try {
-    const c = cm.coordsAtPos(fromPos);
-    if (!c) { target = null; }
+    const bi = cm.lineBlockAt(fromPos);
+    if (!bi) { target = null; }
     else {
-      // Editor block's current Y in editor viewport, then shift by the
-      // delta needed to place it at previewBlockYInView.
-      const blockYInEditor = c.top - sd.getBoundingClientRect().top;
-      target = sd.scrollTop + (blockYInEditor - previewBlockYInView);
+      // bi.top is the block's Y in doc coordinates (from cm-content top).
+      // Place it so that block-doc-Y - newScrollTop = previewBlockYInView.
+      target = bi.top - previewBlockYInView;
     }
   } catch (_) { target = null; }
   if (target == null) return;
@@ -619,7 +622,11 @@ const _rafSync = { editorScroll: false, editorCursor: false, preview: false };
 function rafSchedSync(key, fn) {
   if (_rafSync[key]) return;
   _rafSync[key] = true;
-  requestAnimationFrame(() => { _rafSync[key] = false; fn(); });
+  requestAnimationFrame(() => {
+    _rafSync[key] = false;
+    try { fn(); }
+    catch (e) { console.warn('[md4x] sync', key, e); }
+  });
 }
 
 // ── Alignment ticks (v0.2.3) ──────────────────────────────────────────────

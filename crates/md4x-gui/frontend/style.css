@@ -30,7 +30,7 @@
   --ed-bg-gutter:   #18191d;
   --ed-text:        #d6d8df;
   --ed-text-dim:    #8b8e99;
-  --ed-cursor:      #5e5ce6;
+  --ed-cursor:      #ffffff;
   --ed-heading:     #b4a7ff;
   --ed-emphasis:    #e0aaff;
   --ed-string:      #a5d6a7;
@@ -234,13 +234,17 @@ body.theme-light #toolbar-grip:hover .drag-grip { background: rgba(60, 60, 67, 0
 }
 
 #toolbar-right { display: flex; align-items: center; gap: 8px; }
+#toolbar-right > button {
+  height: 28px;
+  box-sizing: border-box;
+}
 
 /* Generic pill button (template selector etc.) */
 #template-btn {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 5px 11px;
+  padding: 0 11px;
   border-radius: 7px;
   background: var(--md4x-control-bg);
   border: 0.5px solid var(--md4x-control-border);
@@ -266,7 +270,7 @@ body.theme-light #toolbar-grip:hover .drag-grip { background: rgba(60, 60, 67, 0
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 5px 12px;
+  padding: 0 12px;
   border-radius: 7px;
   background: var(--md4x-accent);
   color: #fff;
@@ -292,7 +296,6 @@ body.theme-light #toolbar-grip:hover .drag-grip { background: rgba(60, 60, 67, 0
   align-items: center;
   justify-content: center;
   width: 28px;
-  height: 28px;
   border-radius: 7px;
   background: var(--md4x-control-bg);
   border: 0.5px solid var(--md4x-control-border);
@@ -302,7 +305,26 @@ body.theme-light #toolbar-grip:hover .drag-grip { background: rgba(60, 60, 67, 0
   transition: color 140ms ease, background 140ms ease;
 }
 #settings-btn:hover { color: var(--md4x-accent); background: rgba(255,255,255,0.95); }
-#settings-btn svg { display: block; }
+#settings-btn svg { display: block; width: 16px; height: 16px; }
+
+/* Help (?) icon button — orange-filled, prominent glyph. */
+#help-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  border-radius: 7px;
+  background: #ff8c1a;
+  border: 0.5px solid rgba(0, 0, 0, 0.15);
+  box-shadow: var(--md4x-control-shadow);
+  color: #fff;
+  font-weight: 700;
+  font-size: 15px;
+  line-height: 1;
+  padding: 0;
+  transition: background 140ms ease;
+}
+#help-btn:hover { background: #ff7a00; }
 
 /* ── Main split (editor / preview) ──────────────────────────────────── */
 #panes {
@@ -1275,6 +1297,7 @@ body.theme-light {
   --ed-comment:   #a1a1a6;
   --ed-selection: rgba(94, 92, 230, 0.18);
   --ed-line-active: rgba(94, 92, 230, 0.10);
+  --ed-cursor:      #5e5ce6;
 }
 body.theme-light .seg-opt[data-theme="light"] { color: #1c1c1e; }
 
