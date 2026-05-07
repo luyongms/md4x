@@ -40,7 +40,7 @@ fn body_padding_for(template: &str) -> &'static str {
 /// `<full-name>.macros.json`) lives in ONE place — `plugins::macros`.
 fn load_user_macros(source_path: Option<&str>) -> String {
     let pb = source_path.map(std::path::PathBuf::from);
-    md4x_core::plugins::macros::load_user_macros(pb.as_deref())
+    md4x_core::plugins::macros::load_user_macros(pb.as_deref()).unwrap_or_default()
 }
 
 #[tauri::command]

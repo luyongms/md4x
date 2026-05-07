@@ -1,10 +1,13 @@
 use md4x_core::plugins::Registry;
 
 #[test]
-fn default_registry_has_three_plugins_in_documented_order() {
+fn default_registry_has_six_plugins_in_documented_order() {
     let reg = Registry::default();
     let names: Vec<&str> = reg.plugins().iter().map(|p| p.name()).collect();
-    assert_eq!(names, vec!["mermaid", "katex", "syntect"]);
+    assert_eq!(
+        names,
+        vec!["admonish", "numthm", "mermaid", "macros", "katex", "syntect"]
+    );
 }
 
 #[test]
