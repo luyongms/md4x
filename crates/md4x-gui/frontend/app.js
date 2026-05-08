@@ -1037,19 +1037,23 @@ function initScrollSync() {
   if (!window.md4xScrollSync) return;
   window.md4xScrollSync.init({
     callbacks: {
+      // Editor side wrote a new cursor → preview follows. (Cursor path
+      // is fully owned by the FSM in Phase B; legacy rafSchedSync was
+      // removed for this trigger.)
       resolveFromCursor: () => syncPreviewFromCursor(),
-      // resolveOnce fires after splitterDragEnd / renderComplete in the
-      // FSM. Use the existing cursor-anchored re-sync as the canonical
-      // "rebuild and re-place" routine.
+      // Editor / preview scroll resolves are owned by legacy
+      // rafSchedSync in Phase C — these stay no-op to avoid running
+      // the same sync twice per user-driven scroll. Phase D pulls the
+      // legacy work into the FSM and these become real.
+      resolveFromEditorScroll: () => {},
+      resolveFromPreviewScroll: () => {},
+      // resolveOnce fires after splitterDragEnd / renderComplete.
+      // Cursor-anchored is the canonical "rebuild and re-place" routine.
       resolveOnce: () => syncPreviewFromCursor(),
-      // Block-cache invalidation: delegate to existing helper.
       invalidateBlockCache: () => invalidatePreviewBlocksCache(),
-      // Driver-change publish: alignment-ticks still drives its own
-      // state in this phase; phase D wires it through.
       onDriverChange: () => {},
-      // Other callbacks (setPreviewScrollTop, setEditorScrollTop,
-      // setEditorCursor, forceAlignTick, resolveFromPreviewScroll,
-      // resolveFromEditorScroll) plumb in later phases as we migrate.
+      // Phase D wires setPreviewScrollTop / setEditorScrollTop /
+      // setEditorCursor / forceAlignTick directly through the FSM.
     },
   });
 }
@@ -1449,6 +1453,7 @@ function rerenderNewBlocks(iframe) {
 function applyRender(iframe, html, userMacrosJson) {
   const doc = iframe.contentDocument;
   if (!doc || !doc.body) return;
+  if (window.md4xScrollSync) window.md4xScrollSync.dispatch({ type: 'renderStart' });
   const newDoc = new DOMParser().parseFromString(html, 'text/html');
   patchDOM(doc.body, newDoc.body);
 
@@ -1487,8 +1492,17 @@ function applyRender(iframe, html, userMacrosJson) {
   // visibly update the preview position until the next scroll. We also
   // re-invalidate-and-resync after short delays to catch async KaTeX /
   // mermaid re-layouts that finish AFTER applyRender returns.
-  invalidatePreviewBlocksCache();
-  rafSchedSync('editorCursor', syncPreviewFromCursor);
+  if (window.md4xScrollSync) {
+    // FSM emits invalidateBlockCache + resolveOnce; adapter callbacks
+    // delegate to invalidatePreviewBlocksCache + syncPreviewFromCursor.
+    window.md4xScrollSync.dispatch({ type: 'renderComplete' });
+  } else {
+    invalidatePreviewBlocksCache();
+    rafSchedSync('editorCursor', syncPreviewFromCursor);
+  }
+  // Async KaTeX/mermaid layout often finishes after applyRender; rebuild
+  // the cache and re-anchor a couple times to catch that. (These two
+  // timeouts pre-date the FSM and stay until Phase E.)
   setTimeout(() => { invalidatePreviewBlocksCache(); syncPreviewFromCursor(); scheduleAlignmentTicks(); syncSearchToPreview(); }, 250);
   setTimeout(() => { invalidatePreviewBlocksCache(); syncPreviewFromCursor(); scheduleAlignmentTicks(); syncSearchToPreview(); }, 1000);
   scheduleAlignmentTicks();
@@ -1535,16 +1549,23 @@ function attachIframeHandlers(iframe) {
   win.addEventListener('scroll', () => {
     if (iframe !== activeIframe()) return;
     scheduleAlignmentTicks();
+    // Filter programmatic bounce-back upstream so the FSM only sees
+    // user-driven scrolls. Legacy machinery still owns the actual
+    // sync until Phase D wires setPreviewScrollTop / setEditorScrollTop
+    // through the FSM.
     if (consumeExpectedScroll('preview', win.scrollY)) return;
+    if (window.md4xScrollSync) window.md4xScrollSync.dispatch({ type: 'previewScroll', y: win.scrollY });
     rafSchedSync('preview', () => syncEditorFromPreview(win));
   }, { passive: true });
   // Driver detection: real wheel/touchmove on preview iframe → preview is driver.
   win.addEventListener('wheel', () => {
     if (iframe !== activeIframe()) return;
+    if (window.md4xScrollSync) window.md4xScrollSync.dispatch({ type: 'previewWheel' });
     if (window.md4xAlignmentTicks) window.md4xAlignmentTicks.markUserScroll('preview');
   }, { passive: true });
   win.addEventListener('touchmove', () => {
     if (iframe !== activeIframe()) return;
+    if (window.md4xScrollSync) window.md4xScrollSync.dispatch({ type: 'previewWheel' });
     if (window.md4xAlignmentTicks) window.md4xAlignmentTicks.markUserScroll('preview');
   }, { passive: true });
   // Click-on-preview → smooth-scroll editor to the matching block.
@@ -1559,6 +1580,10 @@ function attachIframeHandlers(iframe) {
     // never recover until next render.
     const a = e.target && e.target.closest && e.target.closest('a[href]');
     if (a) { e.preventDefault(); e.stopPropagation(); }
+    // Notify FSM the preview took over as driver. The legacy handler
+    // does the actual cursor jump — that drives the editor cursor
+    // change which then re-enters the FSM via editorCursor.
+    if (window.md4xScrollSync) window.md4xScrollSync.dispatch({ type: 'previewWheel' });
     syncEditorFromPreviewClick(win, e);
   });
   fitPage(iframe);
@@ -1884,14 +1909,18 @@ gallery.addEventListener('click', (e) => { if (e.target === gallery) gallery.hid
       window.md4xAlignmentTicks.setSplitterDragActive(false);
       window.md4xAlignmentTicks.schedule();
     }
-    // Single reflow with the final width — instead of one per mousemove
-    // tick. ResizeObserver / KaTeX / mermaid layout was the dominant
-    // cost during drag; the body class above also freezes pointer-events
-    // on the iframes so they don't churn while the splitter moves.
-    invalidatePreviewBlocksCache();
+    // Single reflow with the final width — the FSM emits one
+    // resolveOnce after invalidateBlockCache, which the adapter routes
+    // to syncPreviewFromCursor. fitPage still needs to run here to
+    // refresh the iframe layout.
     const iframe = activeIframe();
     if (iframe) fitPage(iframe);
-    rafSchedSync('editorCursor', syncPreviewFromCursor);
+    if (window.md4xScrollSync) {
+      window.md4xScrollSync.dispatch({ type: 'splitterDragEnd' });
+    } else {
+      invalidatePreviewBlocksCache();
+      rafSchedSync('editorCursor', syncPreviewFromCursor);
+    }
   }
   resizer.addEventListener('mousedown', e => {
     dragging = true;
@@ -1900,6 +1929,7 @@ gallery.addEventListener('click', (e) => { if (e.target === gallery) gallery.hid
     resizer.classList.add('dragging');
     panes.classList.add('dragging');
     document.body.classList.add('md4x-splitter-dragging');
+    if (window.md4xScrollSync) window.md4xScrollSync.dispatch({ type: 'splitterDragStart' });
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
     if (window.md4xAlignmentTicks) window.md4xAlignmentTicks.setSplitterDragActive(true);
@@ -2243,13 +2273,16 @@ async function init() {
   cm.scrollDOM.addEventListener('scroll', () => {
     scheduleAlignmentTicks();
     if (consumeExpectedScroll('editor', cm.scrollDOM.scrollTop)) return;
+    if (window.md4xScrollSync) window.md4xScrollSync.dispatch({ type: 'editorScroll', y: cm.scrollDOM.scrollTop });
     rafSchedSync('editorScroll', syncPreviewFromEditor);
   }, { passive: true });
   // Driver detection: real wheel/touchmove on editor → editor is driver.
   cm.scrollDOM.addEventListener('wheel', () => {
+    if (window.md4xScrollSync) window.md4xScrollSync.dispatch({ type: 'editorWheel' });
     if (window.md4xAlignmentTicks) window.md4xAlignmentTicks.markUserScroll('editor');
   }, { passive: true });
   cm.scrollDOM.addEventListener('touchmove', () => {
+    if (window.md4xScrollSync) window.md4xScrollSync.dispatch({ type: 'editorWheel' });
     if (window.md4xAlignmentTicks) window.md4xAlignmentTicks.markUserScroll('editor');
   }, { passive: true });
 

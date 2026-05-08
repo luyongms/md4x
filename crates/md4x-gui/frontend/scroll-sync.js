@@ -174,29 +174,47 @@
             ],
           };
         }
-        // Editor scroll while driving editor → resolve to follower, lock.
+        // Editor scroll while driving editor — when adapter has computed
+        // a follower target, lock on it; otherwise stay driving (legacy
+        // adapter still does the math through resolveFromEditorScroll).
         if (action.type === 'editorScroll' && state.fsm === 'DRIVING_EDITOR') {
-          return {
-            state: {
-              ...state,
-              fsm: 'LOCKED_PROGRAMMATIC',
-              expected: { side: 'preview', y: action.targetPreviewY },
-              expectedFrames: 0,
-            },
-            outputs: [{ type: 'setPreviewScrollTop', y: action.targetPreviewY }],
-          };
+          if (typeof action.targetPreviewY === 'number') {
+            return {
+              state: {
+                ...state,
+                fsm: 'LOCKED_PROGRAMMATIC',
+                expected: { side: 'preview', y: action.targetPreviewY },
+                expectedFrames: 0,
+              },
+              outputs: [{ type: 'setPreviewScrollTop', y: action.targetPreviewY }],
+            };
+          }
+          return { state, outputs: [{ type: 'resolveFromEditorScroll', y: action.y }] };
         }
-        // Preview scroll while driving preview → resolve to editor, lock.
+        // Preview scroll while driving preview — same dual mode.
         if (action.type === 'previewScroll' && state.fsm === 'DRIVING_PREVIEW') {
-          return {
-            state: {
-              ...state,
-              fsm: 'LOCKED_PROGRAMMATIC',
-              expected: { side: 'editor', y: action.targetEditorY },
-              expectedFrames: 0,
-            },
-            outputs: [{ type: 'setEditorScrollTop', y: action.targetEditorY }],
-          };
+          if (typeof action.targetEditorY === 'number') {
+            return {
+              state: {
+                ...state,
+                fsm: 'LOCKED_PROGRAMMATIC',
+                expected: { side: 'editor', y: action.targetEditorY },
+                expectedFrames: 0,
+              },
+              outputs: [{ type: 'setEditorScrollTop', y: action.targetEditorY }],
+            };
+          }
+          return { state, outputs: [{ type: 'resolveFromPreviewScroll', y: action.y }] };
+        }
+        // Cross-side scroll (e.g. previewScroll while DRIVING_EDITOR) is a
+        // bounce-back; with legacy adapter the consumeExpectedScroll filter
+        // upstream already swallowed it. Treat it as no-op here so the
+        // FSM doesn't flip drivers on a programmatic write.
+        if (action.type === 'previewScroll' && state.fsm === 'DRIVING_EDITOR') {
+          return { state, outputs: [] };
+        }
+        if (action.type === 'editorScroll' && state.fsm === 'DRIVING_PREVIEW') {
+          return { state, outputs: [] };
         }
         // editorScroll/previewScroll arriving in IDLE → start driving (rare;
         // wheel input usually fires first but keyboard PageDown does not).
