@@ -54,11 +54,19 @@ const themeCompartment = new CM.Compartment();
 function editorText() { return cm ? cm.state.doc.toString() : ''; }
 function setEditorText(s) {
   if (!cm) return;
-  cm.dispatch({
+  // Mark the transaction non-undoable. Otherwise repeated Cmd+Z past
+  // the user's edits eventually undoes the file-load itself, leaving
+  // the editor empty — the same trap MacDown and a few VS Code-like
+  // editors hit before they fixed it.
+  const opts = {
     changes: { from: 0, to: cm.state.doc.length, insert: s || '' },
     selection: { anchor: 0 },
     scrollIntoView: true,
-  });
+  };
+  if (CM.Transaction && CM.Transaction.addToHistory) {
+    opts.annotations = CM.Transaction.addToHistory.of(false);
+  }
+  cm.dispatch(opts);
 }
 function md4xHighlightStyle() {
   const t = CM.t;
@@ -106,6 +114,10 @@ function buildExtensions(onUpdate) {
       ...CM.historyKeymap,
       CM.indentWithTab,
     ]),
+    // Custom search bar lives outside CM (full window width). We still
+    // mount the search extension so the in-editor match decorations and
+    // setSearchQuery / findNext / replaceAll commands are available.
+    CM.search({ top: true }),
     CM.markdown(),
     CM.syntaxHighlighting(md4xHighlightStyle()),
     md4xBaseTheme(),
@@ -656,6 +668,233 @@ function syncEditorFromPreviewClick(win, evt) {
   rafSchedSync('editorCursor', syncPreviewFromCursor);
 }
 
+// ── Search → preview highlight bridge (v0.2.5) ─────────────────────────────
+// Editor query/state → preview-highlight.js. CSS Custom Highlight API; no
+// DOM mutation in the iframe. Pill fires when active match has no Range.
+const PREVIEW_HIGHLIGHT_CSS =
+  '::highlight(md4x-search) { background-color: #fff48a; color: inherit; } ' +
+  '::highlight(md4x-search-active) { background-color: #ffb547; color: inherit; }';
+
+function ensurePreviewHighlightCSS(doc) {
+  if (!doc || !doc.head) return;
+  if (doc.getElementById('md4x-search-css')) return;
+  const s = doc.createElement('style');
+  s.id = 'md4x-search-css';
+  s.textContent = PREVIEW_HIGHLIGHT_CSS;
+  doc.head.appendChild(s);
+}
+
+function searchActiveOrdinal(query) {
+  // Map editor's main selection head → ordinal-among-matches in source text.
+  if (!cm || !query || !query.search) return -1;
+  const head = cm.state.selection.main.head;
+  const docText = cm.state.doc.toString();
+  // Use preview-highlight's findMatches to keep flag semantics in lockstep.
+  const flags = {
+    caseSensitive: !!query.caseSensitive,
+    wholeWord: !!query.wholeWord,
+    regex: !!query.regexp,
+  };
+  const ph = window.md4xPreviewHighlight;
+  if (!ph) return -1;
+  const matches = ph.findMatches(docText, query.search, flags);
+  for (let i = 0; i < matches.length; i++) {
+    if (matches[i][0] <= head && head <= matches[i][1]) return i;
+  }
+  // Cursor between matches → nearest-prior match.
+  let prev = -1;
+  for (let i = 0; i < matches.length; i++) {
+    if (matches[i][1] <= head) prev = i; else break;
+  }
+  return prev;
+}
+
+function isSearchPanelOpen() {
+  const bar = searchBarEl();
+  return !!(bar && !bar.hidden);
+}
+
+function clearSearchVisuals() {
+  const ph = window.md4xPreviewHighlight;
+  if (ph) ph.clear();
+  const iframe = activeIframe();
+  if (iframe && iframe.contentWindow) {
+    const win = iframe.contentWindow;
+    if (win.__md4xHl && win.__md4xHl.clear) win.__md4xHl.clear();
+    if (win.__md4xHlActive && win.__md4xHlActive.clear) win.__md4xHlActive.clear();
+  }
+  updateSearchPill(false);
+  updateSearchCounter(0, 0, -1);
+}
+
+function readSearchFlagsFromBar() {
+  const tCase  = document.getElementById('search-toggle-case');
+  const tWord  = document.getElementById('search-toggle-word');
+  const tRegex = document.getElementById('search-toggle-regex');
+  return {
+    caseSensitive: tCase && tCase.getAttribute('aria-pressed') === 'true',
+    wholeWord:     tWord && tWord.getAttribute('aria-pressed') === 'true',
+    regex:         tRegex && tRegex.getAttribute('aria-pressed') === 'true',
+  };
+}
+
+function syncSearchToPreview() {
+  const ph = window.md4xPreviewHighlight;
+  if (!ph || !cm || !CM.getSearchQuery) return;
+  if (!isSearchPanelOpen()) { clearSearchVisuals(); return; }
+  const iframe = activeIframe();
+  if (!iframe || !iframe.contentDocument) return;
+  ensurePreviewHighlightCSS(iframe.contentDocument);
+  const q = CM.getSearchQuery(cm.state);
+  const query = (q && q.search) ? q.search : '';
+  if (!query) { clearSearchVisuals(); return; }
+  const flags = {
+    caseSensitive: !!q.caseSensitive,
+    wholeWord: !!q.wholeWord,
+    regex: !!q.regexp,
+  };
+  const activeOrd = searchActiveOrdinal(q);
+  ph.update(iframe.contentDocument, query, flags, activeOrd);
+  const docText = cm.state.doc.toString();
+  const N = ph.findMatches(docText, query, flags).length;
+  const M = ph.countVisible();
+  updateSearchCounter(N, M, activeOrd);
+  const activeHasRange = activeOrd >= 0 && ph.hasRangeForOrdinal(activeOrd);
+  updateSearchPill(activeOrd >= 0 && !activeHasRange);
+}
+
+// Bar-bound update helpers — in-bar counter and inline "not visible" glyph.
+const searchBarEl       = () => document.getElementById('search-bar');
+const searchInputEl     = () => document.getElementById('search-input');
+const replaceInputEl    = () => document.getElementById('replace-input');
+const searchCountEl     = () => document.getElementById('search-count');
+const searchNotVisEl    = () => document.getElementById('search-not-visible');
+const searchReplaceRow  = () => document.querySelector('.search-replace-row');
+
+function updateSearchCounter(N, M, activeOrdinal) {
+  const el = searchCountEl();
+  if (!el) return;
+  if (!N) { el.textContent = ''; return; }
+  const cur = (activeOrdinal >= 0) ? activeOrdinal + 1 : 0;
+  el.textContent = (M < N)
+    ? `${cur} of ${N} (${M} in preview)`
+    : `${cur} of ${N}`;
+}
+function updateSearchPill(show) {
+  const el = searchNotVisEl();
+  if (el) el.hidden = !show;
+}
+
+// Open + focus the search bar; pre-fill from current selection when possible.
+function openSearchBar() {
+  const bar = searchBarEl();
+  if (!bar) return;
+  bar.hidden = false;
+  // CM6's searchHighlighter only paints decorations when the built-in
+  // search panel is OPEN (it short-circuits on `!panel`). We open it
+  // programmatically and hide its UI via CSS so our custom bar is the
+  // only visible search affordance.
+  if (cm && CM.openSearchPanel) CM.openSearchPanel(cm);
+  const input = searchInputEl();
+  if (cm) {
+    const sel = cm.state.selection.main;
+    if (!sel.empty) {
+      const seed = cm.state.sliceDoc(sel.from, sel.to);
+      if (seed && !seed.includes('\n')) input.value = seed;
+    }
+  }
+  input.focus();
+  input.select();
+  pushSearchQuery();
+  scheduleAlignmentTicks();
+}
+function closeSearchBar() {
+  const bar = searchBarEl();
+  if (!bar) return;
+  bar.hidden = true;
+  if (cm && CM.setSearchQuery) {
+    cm.dispatch({ effects: CM.setSearchQuery.of(new CM.SearchQuery({ search: '' })) });
+  }
+  if (cm && CM.closeSearchPanel) CM.closeSearchPanel(cm);
+  clearSearchVisuals();
+  if (cm) cm.focus();
+  scheduleAlignmentTicks();
+}
+// Push the bar's current input + flags into CM6's search state, which
+// drives the in-editor match decorations and findNext/replaceAll commands.
+function pushSearchQuery() {
+  if (!cm || !CM.setSearchQuery || !CM.SearchQuery) return;
+  const input = searchInputEl();
+  const flags = readSearchFlagsFromBar();
+  const sq = new CM.SearchQuery({
+    search: input.value || '',
+    caseSensitive: flags.caseSensitive,
+    wholeWord: flags.wholeWord,
+    regexp: flags.regex,
+    replace: replaceInputEl().value || '',
+  });
+  cm.dispatch({ effects: CM.setSearchQuery.of(sq) });
+  syncSearchToPreview();
+}
+function searchNext() {
+  if (!cm || !CM.findNext) return;
+  pushSearchQuery();
+  CM.findNext(cm);
+  syncSearchToPreview();
+}
+function searchPrev() {
+  if (!cm || !CM.findPrevious) return;
+  pushSearchQuery();
+  CM.findPrevious(cm);
+  syncSearchToPreview();
+}
+function searchReplaceOnce() {
+  if (!cm || !CM.replaceNext) return;
+  pushSearchQuery();
+  CM.replaceNext(cm);
+}
+function searchReplaceAll() {
+  if (!cm || !CM.replaceAll) return;
+  pushSearchQuery();
+  CM.replaceAll(cm);
+}
+function toggleReplaceRow() {
+  const row = searchReplaceRow();
+  const btn = document.getElementById('search-replace-toggle');
+  if (!row || !btn) return;
+  const showing = !row.hidden;
+  row.hidden = showing;
+  btn.classList.toggle('expanded', !showing);
+}
+function wireSearchBar() {
+  const input = searchInputEl();
+  if (!input) return;
+  input.addEventListener('input', pushSearchQuery);
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape')      { e.preventDefault(); closeSearchBar(); }
+    else if (e.key === 'Enter')  { e.preventDefault(); e.shiftKey ? searchPrev() : searchNext(); }
+  });
+  replaceInputEl().addEventListener('input', pushSearchQuery);
+  replaceInputEl().addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { e.preventDefault(); closeSearchBar(); }
+    else if (e.key === 'Enter') { e.preventDefault(); searchReplaceOnce(); }
+  });
+  document.getElementById('search-prev').addEventListener('click', searchPrev);
+  document.getElementById('search-next').addEventListener('click', searchNext);
+  document.getElementById('search-close').addEventListener('click', closeSearchBar);
+  document.getElementById('search-replace-toggle').addEventListener('click', toggleReplaceRow);
+  document.getElementById('replace-once').addEventListener('click', searchReplaceOnce);
+  document.getElementById('replace-all').addEventListener('click', searchReplaceAll);
+  for (const id of ['search-toggle-case', 'search-toggle-word', 'search-toggle-regex']) {
+    document.getElementById(id).addEventListener('click', (e) => {
+      const b = e.currentTarget;
+      const on = b.getAttribute('aria-pressed') === 'true';
+      b.setAttribute('aria-pressed', on ? 'false' : 'true');
+      pushSearchQuery();
+    });
+  }
+}
+
 // rAF coalesce: under fast scroll, dozens of scroll events fire per frame.
 // Without coalescing each one would re-run the sync (and overwrite the
 // previousExpected mid-flight, defeating bounce-back detection). Once per
@@ -850,7 +1089,18 @@ function setEditorContent(text, filePath) {
   updateCounts();
   syncWindowTitle();
   hideWelcome();
+  // Heuristic: only show the spinner for "real" files large enough to
+  // feel slow (>4KB). Tiny edits / new drafts feel snappier without it.
+  if ((text || '').length > 4096) showPreviewSpinner();
   scheduleRender();
+}
+function showPreviewSpinner() {
+  const el = document.getElementById('preview-spinner');
+  if (el) el.hidden = false;
+}
+function hidePreviewSpinner() {
+  const el = document.getElementById('preview-spinner');
+  if (el && !el.hidden) el.hidden = true;
 }
 function newDraft() { setEditorContent('', null); if (cm) cm.focus(); }
 window.newDraft = newDraft;
@@ -1193,6 +1443,7 @@ function applyRender(iframe, html, userMacrosJson) {
   if (!doc || !doc.body) return;
   const newDoc = new DOMParser().parseFromString(html, 'text/html');
   patchDOM(doc.body, newDoc.body);
+  hidePreviewSpinner();
 
   // Live-update of user macros: if `<file>.macros.json` changed since
   // the last render, push the new map into the iframe and force every
@@ -1231,9 +1482,10 @@ function applyRender(iframe, html, userMacrosJson) {
   // mermaid re-layouts that finish AFTER applyRender returns.
   invalidatePreviewBlocksCache();
   rafSchedSync('editorCursor', syncPreviewFromCursor);
-  setTimeout(() => { invalidatePreviewBlocksCache(); syncPreviewFromCursor(); scheduleAlignmentTicks(); }, 250);
-  setTimeout(() => { invalidatePreviewBlocksCache(); syncPreviewFromCursor(); scheduleAlignmentTicks(); }, 1000);
+  setTimeout(() => { invalidatePreviewBlocksCache(); syncPreviewFromCursor(); scheduleAlignmentTicks(); syncSearchToPreview(); }, 250);
+  setTimeout(() => { invalidatePreviewBlocksCache(); syncPreviewFromCursor(); scheduleAlignmentTicks(); syncSearchToPreview(); }, 1000);
   scheduleAlignmentTicks();
+  syncSearchToPreview();
 }
 
 function bootstrapIframe(iframe, html) {
@@ -1593,12 +1845,22 @@ gallery.addEventListener('click', (e) => { if (e.target === gallery) gallery.hid
     dragging = false;
     resizer.classList.remove('dragging');
     panes.classList.remove('dragging');
+    document.body.classList.remove('md4x-splitter-dragging');
     document.body.style.cursor = '';
     document.body.style.userSelect = '';
     if (window.md4xAlignmentTicks) {
       window.md4xAlignmentTicks.setSplitterDragActive(false);
       window.md4xAlignmentTicks.schedule();
     }
+    // Force a single fitPage on the active iframe after drag ends so
+    // the preview reflows once with the final width — instead of every
+    // mousemove tick. ResizeObserver + KaTeX/mermaid layout were the
+    // dominant cost; freezing pointer-events during drag (CSS class)
+    // also keeps the iframe from churning.
+    invalidatePreviewBlocksCache();
+    const iframe = activeIframe();
+    if (iframe) fitPage(iframe);
+    rafSchedSync('editorCursor', syncPreviewFromCursor);
   }
   resizer.addEventListener('mousedown', e => {
     dragging = true;
@@ -1606,6 +1868,7 @@ gallery.addEventListener('click', (e) => { if (e.target === gallery) gallery.hid
     startW = editorPane.getBoundingClientRect().width;
     resizer.classList.add('dragging');
     panes.classList.add('dragging');
+    document.body.classList.add('md4x-splitter-dragging');
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
     if (window.md4xAlignmentTicks) window.md4xAlignmentTicks.setSplitterDragActive(true);
@@ -1651,6 +1914,7 @@ window.addEventListener('keydown', e => {
   if (e.key === 'Escape' && !undefModal.hidden) { closeUndefModal(); return; }
   if (e.key === 'Escape' && !helpModal.hidden) { closeHelp(); return; }
   if (e.key === 'Escape' && !welcome.hidden && (currentFilePath || editorText())) { hideWelcome(); return; }
+  if (e.key === 'Escape' && isSearchPanelOpen()) { closeSearchBar(); return; }
   if (!(e.metaKey || e.ctrlKey)) return;
   const k = e.key.toLowerCase();
   if (k === 'o' && !e.shiftKey && !e.altKey) { e.preventDefault(); showWelcome(); }
@@ -1662,6 +1926,8 @@ window.addEventListener('keydown', e => {
     if (isDirty) showConfirmClose(); else newDraft();
   }
   else if (e.key === ',' && !e.shiftKey && !e.altKey) { e.preventDefault(); openSettings(); }
+  else if (k === 'f' && !e.shiftKey && !e.altKey) { e.preventDefault(); openSearchBar(); }
+  else if (k === 'g' && !e.altKey) { e.preventDefault(); e.shiftKey ? searchPrev() : searchNext(); }
 });
 
 // ── Export PDF dialog (per design §6) ───────────────────────────────────────
@@ -1920,7 +2186,11 @@ async function init() {
     if (update.docChanged || update.selectionSet || update.geometryChanged || update.viewportChanged) {
       scheduleAlignmentTicks();
     }
+    // Search query / active match changes → repaint preview highlights.
+    syncSearchToPreview();
   });
+  // Wire the custom search bar (full window-width, both panes).
+  wireSearchBar();
   cm.scrollDOM.addEventListener('scroll', () => {
     scheduleAlignmentTicks();
     if (consumeExpectedScroll('editor', cm.scrollDOM.scrollTop)) return;

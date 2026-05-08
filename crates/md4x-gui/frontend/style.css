@@ -370,8 +370,12 @@ body.theme-light #toolbar-grip:hover .drag-grip { background: rgba(60, 60, 67, 0
   color: var(--ed-text-dim);
   border-right: 0.5px solid rgba(255, 255, 255, 0.04);
   font-variant-numeric: tabular-nums;
+  font-family: var(--font-system);
+  font-size: 8.5px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
 }
-.cm-gutterElement { padding: 0 10px 0 12px; min-width: 28px; }
+.cm-gutterElement { padding: 0 6px 0 8px; min-width: 22px; }
 .cm-activeLine {
   background: var(--ed-line-active);
   box-shadow: inset 2px 0 0 var(--md4x-accent);
@@ -1438,3 +1442,282 @@ body.theme-light .md4x-tick-strip-editor .tick-heading { background: rgba(0, 0, 
 }
 /* Hide red current tick during splitter drag — faint ticks remain. */
 .md4x-tick-strip.drag .tick-current { opacity: 0; }
+
+
+/* ── Search & Replace bar (v0.2.5, redesigned) ──────────────────────────── */
+/* Always-light material — Apple's Find bars (Safari, Pages, Numbers, Notes)
+   stay light regardless of system appearance because they sit on top of
+   editor content, not within it. All colors below are literal so the dark
+   theme override on --md4x-* tokens cannot bleed in. */
+#search-bar {
+  position: relative;
+  z-index: 9;
+  background: #f6f6f8;
+  border-bottom: 0.5px solid rgba(0, 0, 0, 0.12);
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.04), 0 6px 16px rgba(0, 0, 0, 0.06);
+  flex-shrink: 0;
+  padding: 8px 16px;
+  font-family: var(--font-system);
+  color: #1d1d1f;
+}
+.search-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+}
+.search-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+#search-bar .search-icon {
+  color: rgba(60, 60, 67, 0.72);
+  flex-shrink: 0;
+  margin-left: 2px;
+}
+.search-icon-spacer {
+  display: inline-block;
+  width: 14px;
+  flex-shrink: 0;
+  margin-left: 2px;
+}
+#search-replace-toggle {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: rgba(60, 60, 67, 0.72);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: transform 160ms ease, background 120ms ease;
+  flex-shrink: 0;
+}
+#search-replace-toggle:hover { background: rgba(94, 92, 230, 0.12); color: #1d1d1f; }
+#search-replace-toggle.expanded { transform: rotate(90deg); }
+#search-input,
+#replace-input {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-system);
+  font-size: 13px;
+  font-weight: 500;
+  padding: 7px 12px;
+  border-radius: 8px;
+  border: 0.5px solid rgba(0, 0, 0, 0.12);
+  background: #ffffff;
+  color: #1d1d1f;
+  outline: none;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+#search-input::placeholder,
+#replace-input::placeholder { color: rgba(60, 60, 67, 0.45); }
+#search-input:focus,
+#replace-input:focus {
+  border-color: #5e5ce6;
+  box-shadow: 0 0 0 3px rgba(94, 92, 230, 0.22);
+}
+.search-count {
+  font-variant-numeric: tabular-nums;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: rgba(60, 60, 67, 0.72);
+  min-width: 64px;
+  text-align: right;
+  flex-shrink: 0;
+}
+.search-count:empty { display: none; }
+.search-not-visible {
+  display: inline-flex;
+  align-items: center;
+  position: relative;
+  color: rgba(60, 60, 67, 0.72);
+  flex-shrink: 0;
+  padding: 0 2px;
+}
+.search-not-visible .dot {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #ffb547;
+  box-shadow: 0 0 0 2px #f6f6f8;
+}
+.search-segmented {
+  display: inline-flex;
+  align-items: stretch;
+  border-radius: 7px;
+  border: 0.5px solid rgba(0, 0, 0, 0.12);
+  background: #ffffff;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.search-segmented button {
+  font-family: var(--font-system);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 6px 11px;
+  min-width: 32px;
+  border: none;
+  background: transparent;
+  color: rgba(60, 60, 67, 0.72);
+  border-right: 0.5px solid rgba(0, 0, 0, 0.10);
+  transition: background 120ms ease, color 120ms ease;
+}
+.search-segmented button:last-child { border-right: none; }
+.search-segmented button:hover { background: rgba(94, 92, 230, 0.12); color: #1d1d1f; }
+.search-segmented button[aria-pressed="true"] {
+  background: #5e5ce6;
+  color: #ffffff;
+}
+.nav-btn,
+.close-btn {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border-radius: 6px;
+  border: 0.5px solid rgba(0, 0, 0, 0.12);
+  background: #ffffff;
+  color: rgba(60, 60, 67, 0.72);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+.nav-btn:hover,
+.close-btn:hover {
+  background: rgba(94, 92, 230, 0.12);
+  color: #1d1d1f;
+  border-color: #5e5ce6;
+}
+.close-btn { margin-left: 4px; }
+.replace-btn {
+  font-family: var(--font-system);
+  font-size: 12px;
+  font-weight: 500;
+  padding: 6px 14px;
+  border-radius: 7px;
+  border: 0.5px solid rgba(0, 0, 0, 0.12);
+  background: #ffffff;
+  color: #1d1d1f;
+  flex-shrink: 0;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+.replace-btn:hover {
+  background: rgba(94, 92, 230, 0.18);
+  border-color: #5e5ce6;
+}
+
+/* Editor search-match decorations — readable on dark + light editor. */
+.cm-searchMatch {
+  background-color: rgba(255, 244, 138, 0.32) !important;
+  outline: 0.5px solid rgba(255, 244, 138, 0.55);
+  border-radius: 2px;
+}
+.cm-searchMatch-selected {
+  background-color: rgba(255, 181, 71, 0.55) !important;
+  outline: 0.5px solid rgba(255, 181, 71, 0.85);
+}
+body.theme-light .cm-searchMatch {
+  background-color: rgba(255, 232, 99, 0.55) !important;
+  outline: 0.5px solid rgba(212, 165, 0, 0.45);
+}
+body.theme-light .cm-searchMatch-selected {
+  background-color: rgba(255, 165, 60, 0.65) !important;
+  outline: 0.5px solid rgba(212, 110, 0, 0.65);
+}
+
+/* Hide CM6's built-in search panel — we keep it OPEN programmatically so
+   the searchHighlighter decorator paints in-editor matches (it short-
+   circuits on `!panel`), but our custom #search-bar is the only visible
+   UI. Display:none is fine; the panel state still exists. */
+.cm-panels.cm-panels-top { display: none !important; }
+.cm-panels.cm-panels-bottom { display: none !important; }
+
+/* ── Preview spinner (v0.2.5) ───────────────────────────────────────────── */
+/* Classic macOS-style spinner — 12 ticks arranged radially, each fading
+   in sequence. Same primitive Apple uses in beachball / loading sheets. */
+#preview-pane { position: relative; }
+#preview-spinner {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  background: var(--pp-bg);
+  z-index: 5;
+  pointer-events: none;
+  animation: spinner-fade-in 220ms ease-out;
+}
+.apple-spinner {
+  position: relative;
+  width: 32px;
+  height: 32px;
+}
+.apple-spinner span {
+  position: absolute;
+  top: 0; left: 50%;
+  width: 2.5px;
+  height: 8px;
+  margin-left: -1.25px;
+  border-radius: 1.5px;
+  background: var(--md4x-text);
+  transform-origin: 50% 16px;
+  animation: spinner-tick 1.0s linear infinite;
+  opacity: 0.10;
+}
+.apple-spinner span:nth-child(1)  { transform: rotate(  0deg); animation-delay: -1.000s; }
+.apple-spinner span:nth-child(2)  { transform: rotate( 30deg); animation-delay: -0.917s; }
+.apple-spinner span:nth-child(3)  { transform: rotate( 60deg); animation-delay: -0.833s; }
+.apple-spinner span:nth-child(4)  { transform: rotate( 90deg); animation-delay: -0.750s; }
+.apple-spinner span:nth-child(5)  { transform: rotate(120deg); animation-delay: -0.667s; }
+.apple-spinner span:nth-child(6)  { transform: rotate(150deg); animation-delay: -0.583s; }
+.apple-spinner span:nth-child(7)  { transform: rotate(180deg); animation-delay: -0.500s; }
+.apple-spinner span:nth-child(8)  { transform: rotate(210deg); animation-delay: -0.417s; }
+.apple-spinner span:nth-child(9)  { transform: rotate(240deg); animation-delay: -0.333s; }
+.apple-spinner span:nth-child(10) { transform: rotate(270deg); animation-delay: -0.250s; }
+.apple-spinner span:nth-child(11) { transform: rotate(300deg); animation-delay: -0.167s; }
+.apple-spinner span:nth-child(12) { transform: rotate(330deg); animation-delay: -0.083s; }
+@keyframes spinner-tick {
+  0%   { opacity: 0.95; }
+  100% { opacity: 0.10; }
+}
+@keyframes spinner-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.spinner-label {
+  font-family: var(--font-system);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: var(--md4x-text-secondary);
+}
+
+/* GPU-promote preview iframes — works around an intermittent WKWebView
+   bug where the active iframe renders blank until something else triggers
+   a layout/paint cycle. Promoting to a separate compositor layer keeps
+   it in-paint regardless of toolbar / search-bar layout shifts. */
+#preview-a, #preview-b {
+  transform: translateZ(0);
+  will-change: transform;
+  backface-visibility: hidden;
+}
+
+/* During splitter drag, freeze the iframe interaction surface — prevents
+   ResizeObserver / mermaid / katex inside iframe from churning on every
+   mouse-move tick. Restored when drag ends. */
+body.md4x-splitter-dragging #preview-a,
+body.md4x-splitter-dragging #preview-b {
+  pointer-events: none;
+}
