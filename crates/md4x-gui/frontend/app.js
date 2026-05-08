@@ -1479,6 +1479,22 @@ function attachIframeHandlers(iframe) {
   const doc = iframe.contentDocument;
   const win = iframe.contentWindow;
   if (!doc || !win) return;
+  // Persistent scrollbar styling — overlay scrollbar fades out at rest;
+  // we want it visible whenever the doc overflows. `scrollbar-gutter:
+  // stable` reserves room only when needed, so empty docs in a large
+  // window don't sprout an empty rail.
+  if (!doc.getElementById('md4x-scrollbar-css')) {
+    const s = doc.createElement('style');
+    s.id = 'md4x-scrollbar-css';
+    s.textContent = [
+      'html { scrollbar-gutter: stable; }',
+      'html::-webkit-scrollbar { width: 10px; height: 10px; background: transparent; }',
+      'html::-webkit-scrollbar-thumb { background: rgba(60, 60, 67, 0.32); border-radius: 5px; border: 2px solid transparent; background-clip: content-box; min-height: 28px; }',
+      'html::-webkit-scrollbar-thumb:hover { background: rgba(60, 60, 67, 0.55); background-clip: content-box; border: 2px solid transparent; }',
+      'html::-webkit-scrollbar-track { background: transparent; }',
+    ].join('\n');
+    doc.head && doc.head.appendChild(s);
+  }
   doc.addEventListener('contextmenu', e => { e.preventDefault(); e.stopPropagation(); }, true);
   doc.addEventListener('mousedown', e => { if (e.button === 2) { e.preventDefault(); e.stopPropagation(); } }, true);
   doc.addEventListener('mouseup',   e => { if (e.button === 2) { e.preventDefault(); e.stopPropagation(); } }, true);
@@ -1510,6 +1526,12 @@ function attachIframeHandlers(iframe) {
   // corresponding lezer block.
   doc.addEventListener('click', (e) => {
     if (iframe !== activeIframe()) return;
+    // Block link navigation — preview is read-only-ish; we only use
+    // clicks for cursor sync. Without this, anchor clicks would
+    // replace the iframe with the target URL and the preview would
+    // never recover until next render.
+    const a = e.target && e.target.closest && e.target.closest('a[href]');
+    if (a) { e.preventDefault(); e.stopPropagation(); }
     syncEditorFromPreviewClick(win, e);
   });
   fitPage(iframe);
@@ -1647,7 +1669,10 @@ async function switchTemplate(newTemplate) {
   await bootstrapIframe(inactive, result.html);
   const active = activeIframe();
   inactive.style.opacity = '1';
-  inactive.style.pointerEvents = '';
+  // Force inline 'auto' — empty string falls through to the
+  // `#preview-b { pointer-events: none }` CSS rule so iframeB would
+  // stay click-blocked even when it becomes the active iframe.
+  inactive.style.pointerEvents = 'auto';
   active.style.opacity = '0';
   active.style.pointerEvents = 'none';
   activeFrame = activeFrame === 'a' ? 'b' : 'a';
@@ -1825,12 +1850,21 @@ gallery.addEventListener('click', (e) => { if (e.target === gallery) gallery.hid
     dragging = false;
     resizer.classList.remove('dragging');
     panes.classList.remove('dragging');
+    document.body.classList.remove('md4x-splitter-dragging');
     document.body.style.cursor = '';
     document.body.style.userSelect = '';
     if (window.md4xAlignmentTicks) {
       window.md4xAlignmentTicks.setSplitterDragActive(false);
       window.md4xAlignmentTicks.schedule();
     }
+    // Single reflow with the final width — instead of one per mousemove
+    // tick. ResizeObserver / KaTeX / mermaid layout was the dominant
+    // cost during drag; the body class above also freezes pointer-events
+    // on the iframes so they don't churn while the splitter moves.
+    invalidatePreviewBlocksCache();
+    const iframe = activeIframe();
+    if (iframe) fitPage(iframe);
+    rafSchedSync('editorCursor', syncPreviewFromCursor);
   }
   resizer.addEventListener('mousedown', e => {
     dragging = true;
@@ -1838,21 +1872,32 @@ gallery.addEventListener('click', (e) => { if (e.target === gallery) gallery.hid
     startW = editorPane.getBoundingClientRect().width;
     resizer.classList.add('dragging');
     panes.classList.add('dragging');
+    document.body.classList.add('md4x-splitter-dragging');
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
     if (window.md4xAlignmentTicks) window.md4xAlignmentTicks.setSplitterDragActive(true);
     e.preventDefault();
   });
+  // rAF-coalesce the width write. Trackpad / 120Hz mice fire mousemove
+  // faster than display refresh; without coalescing the iframe gets
+  // 2+ width changes per frame and WKWebView's compositor layer
+  // invalidates mid-paint, leaving the preview blank on fast drags of
+  // large docs. One write per frame keeps it in paint.
+  let pendingDragW = -1;
+  let dragRafScheduled = false;
   document.addEventListener('mousemove', e => {
     if (!dragging) return;
     const total = panes.getBoundingClientRect().width - 1;
-    const w = Math.max(160, Math.min(total - 160, startW + e.clientX - startX));
-    editorPane.style.flex = 'none';
-    editorPane.style.width = w + 'px';
-    // Each move extends the suspension window so sync stays off until
-    // the user has stopped dragging for ~200ms. Skip alignment-ticks
-    // schedule during drag — the module gates work on its own drag flag.
+    pendingDragW = Math.max(160, Math.min(total - 160, startW + e.clientX - startX));
     suspendSync(200);
+    if (dragRafScheduled) return;
+    dragRafScheduled = true;
+    requestAnimationFrame(() => {
+      dragRafScheduled = false;
+      if (!dragging || pendingDragW < 0) return;
+      editorPane.style.flex = 'none';
+      editorPane.style.width = pendingDragW + 'px';
+    });
   });
   document.addEventListener('mouseup', endDrag);
   window.addEventListener('blur', endDrag);

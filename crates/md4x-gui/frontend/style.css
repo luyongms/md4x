@@ -1642,3 +1642,11 @@ body.theme-light .cm-searchMatch-selected {
 .cm-panels.cm-panels-top { display: none !important; }
 .cm-panels.cm-panels-bottom { display: none !important; }
 
+
+/* Splitter drag perf — freeze iframe interaction while dragging so the
+   in-iframe ResizeObserver / KaTeX / mermaid don't reflow every move
+   event. Single reflow happens in endDrag via fitPage. */
+body.md4x-splitter-dragging #preview-a,
+body.md4x-splitter-dragging #preview-b {
+  pointer-events: none;
+}
