@@ -54,19 +54,11 @@ const themeCompartment = new CM.Compartment();
 function editorText() { return cm ? cm.state.doc.toString() : ''; }
 function setEditorText(s) {
   if (!cm) return;
-  // Mark the transaction non-undoable. Otherwise repeated Cmd+Z past
-  // the user's edits eventually undoes the file-load itself, leaving
-  // the editor empty — the same trap MacDown and a few VS Code-like
-  // editors hit before they fixed it.
-  const opts = {
+  cm.dispatch({
     changes: { from: 0, to: cm.state.doc.length, insert: s || '' },
     selection: { anchor: 0 },
     scrollIntoView: true,
-  };
-  if (CM.Transaction && CM.Transaction.addToHistory) {
-    opts.annotations = CM.Transaction.addToHistory.of(false);
-  }
-  cm.dispatch(opts);
+  });
 }
 function md4xHighlightStyle() {
   const t = CM.t;
@@ -1089,18 +1081,7 @@ function setEditorContent(text, filePath) {
   updateCounts();
   syncWindowTitle();
   hideWelcome();
-  // Heuristic: only show the spinner for "real" files large enough to
-  // feel slow (>4KB). Tiny edits / new drafts feel snappier without it.
-  if ((text || '').length > 4096) showPreviewSpinner();
   scheduleRender();
-}
-function showPreviewSpinner() {
-  const el = document.getElementById('preview-spinner');
-  if (el) el.hidden = false;
-}
-function hidePreviewSpinner() {
-  const el = document.getElementById('preview-spinner');
-  if (el && !el.hidden) el.hidden = true;
 }
 function newDraft() { setEditorContent('', null); if (cm) cm.focus(); }
 window.newDraft = newDraft;
@@ -1443,7 +1424,6 @@ function applyRender(iframe, html, userMacrosJson) {
   if (!doc || !doc.body) return;
   const newDoc = new DOMParser().parseFromString(html, 'text/html');
   patchDOM(doc.body, newDoc.body);
-  hidePreviewSpinner();
 
   // Live-update of user macros: if `<file>.macros.json` changed since
   // the last render, push the new map into the iframe and force every
@@ -1845,22 +1825,12 @@ gallery.addEventListener('click', (e) => { if (e.target === gallery) gallery.hid
     dragging = false;
     resizer.classList.remove('dragging');
     panes.classList.remove('dragging');
-    document.body.classList.remove('md4x-splitter-dragging');
     document.body.style.cursor = '';
     document.body.style.userSelect = '';
     if (window.md4xAlignmentTicks) {
       window.md4xAlignmentTicks.setSplitterDragActive(false);
       window.md4xAlignmentTicks.schedule();
     }
-    // Force a single fitPage on the active iframe after drag ends so
-    // the preview reflows once with the final width — instead of every
-    // mousemove tick. ResizeObserver + KaTeX/mermaid layout were the
-    // dominant cost; freezing pointer-events during drag (CSS class)
-    // also keeps the iframe from churning.
-    invalidatePreviewBlocksCache();
-    const iframe = activeIframe();
-    if (iframe) fitPage(iframe);
-    rafSchedSync('editorCursor', syncPreviewFromCursor);
   }
   resizer.addEventListener('mousedown', e => {
     dragging = true;
@@ -1868,7 +1838,6 @@ gallery.addEventListener('click', (e) => { if (e.target === gallery) gallery.hid
     startW = editorPane.getBoundingClientRect().width;
     resizer.classList.add('dragging');
     panes.classList.add('dragging');
-    document.body.classList.add('md4x-splitter-dragging');
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
     if (window.md4xAlignmentTicks) window.md4xAlignmentTicks.setSplitterDragActive(true);

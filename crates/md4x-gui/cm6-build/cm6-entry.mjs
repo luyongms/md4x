@@ -1,6 +1,6 @@
 // CodeMirror 6 entry — imports the modules we use, re-exports on window.
 // One-shot: bundled by build-cm6.sh into cm6-bundle.js (IIFE), committed.
-import { EditorState, EditorSelection, Compartment, Transaction } from "@codemirror/state";
+import { EditorState, EditorSelection, Compartment } from "@codemirror/state";
 import {
   EditorView, keymap, lineNumbers, highlightActiveLine,
   highlightActiveLineGutter, drawSelection,
@@ -19,7 +19,7 @@ import {
 } from "@codemirror/search";
 
 window.MD4X_CM6 = {
-  EditorState, EditorSelection, Compartment, Transaction,
+  EditorState, EditorSelection, Compartment,
   EditorView, keymap, lineNumbers, highlightActiveLine,
   highlightActiveLineGutter, drawSelection,
   defaultKeymap, history, historyKeymap, indentWithTab,
