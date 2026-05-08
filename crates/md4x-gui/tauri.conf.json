@@ -1,6 +1,6 @@
 {
   "productName": "md4x",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "identifier": "com.md4x.app",
   "build": {
     "frontendDist": "./frontend"
