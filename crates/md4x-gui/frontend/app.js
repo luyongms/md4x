@@ -946,6 +946,7 @@ function getEditorAlignmentState() {
     tops, kinds,
     scrollTop: sd.scrollTop,
     viewportH: sd.clientHeight,
+    scrollHeight: sd.scrollHeight,
     cursorOrdinal,
     cursorTickY,
   };
@@ -982,6 +983,7 @@ function getPreviewAlignmentState() {
     kinds,
     scrollTop: win.scrollY,
     viewportH: win.innerHeight,
+    scrollHeight: (win.document.documentElement && win.document.documentElement.scrollHeight) || 0,
     cursorOrdinal,
     cursorTickY,
   };
@@ -1052,8 +1054,29 @@ function initScrollSync() {
       resolveOnce: () => syncPreviewFromCursor(),
       invalidateBlockCache: () => invalidatePreviewBlocksCache(),
       onDriverChange: () => {},
-      // Phase D wires setPreviewScrollTop / setEditorScrollTop /
-      // setEditorCursor / forceAlignTick directly through the FSM.
+      // Force-align: the FSM emits this when the alignment-tick render
+      // detected a small drift between editor cursor tick and preview
+      // cursor tick. We do a single corrective scrollBy on the
+      // follower; the bounce-back machinery flags the expected new
+      // scroll position so the resulting event is consumed.
+      forceAlignTick: (side, delta) => {
+        if (side === 'preview') {
+          const win = activeIframe() && activeIframe().contentWindow;
+          if (!win) return;
+          const targetY = win.scrollY + delta;
+          previewExpected = Math.round(targetY);
+          previewLockUntil = Date.now() + SMOOTH_LOCKOUT_MS;
+          win.scrollTo({ top: targetY, left: 0, behavior: 'auto' });
+        } else if (side === 'editor' && cm) {
+          const sd = cm.scrollDOM;
+          const targetY = sd.scrollTop + delta;
+          editorExpected = Math.round(targetY);
+          editorLockUntil = Date.now() + SMOOTH_LOCKOUT_MS;
+          sd.scrollTo({ top: targetY, left: 0, behavior: 'auto' });
+        }
+      },
+      // Phase D step 2 wires setPreviewScrollTop / setEditorScrollTop /
+      // setEditorCursor directly through the FSM.
     },
   });
 }

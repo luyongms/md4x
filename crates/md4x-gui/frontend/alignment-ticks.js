@@ -39,8 +39,12 @@
   function init(opts) {
     if (installed) return;
     bridge = opts.bridge;
-    math   = root.md4xAlignmentMath || (typeof require === 'function' ? require('./alignment-math.js') : null);
-    if (!math) { console.warn('[md4x] alignment-math unavailable'); return; }
+    // Math primitives moved into scroll-sync.js (v0.2.5). The
+    // md4xAlignmentMath global is preserved as a back-compat alias.
+    math = (root.md4xScrollSync && root.md4xScrollSync.math)
+        || root.md4xAlignmentMath
+        || (typeof require === 'function' ? require('./scroll-sync.js').math : null);
+    if (!math) { console.warn('[md4x] scroll-sync math unavailable'); return; }
 
     editorStrip  = createStrip('md4x-tick-strip-editor');
     previewStrip = createStrip('md4x-tick-strip-preview');
@@ -71,14 +75,23 @@
     }
   }
 
-  // markUserScroll: called from real wheel/touchmove/keydown handlers in
-  // each pane. Programmatic scrolls do NOT call this.
+  // markUserScroll: legacy entry point, kept for back-compat with
+  // app.js until every wheel/touchmove handler is migrated. v0.2.5
+  // delegates the canonical driver state to scroll-sync.js — this
+  // remains as a fallback for environments where the FSM hasn't
+  // been wired (tests, legacy bridges).
   function markUserScroll(side) {
     lastUserScrollSource = side;
     lastUserScrollTime   = Date.now();
   }
 
   function currentDriver() {
+    // Prefer the FSM's driver state (single source of truth).
+    if (root.md4xScrollSync && typeof root.md4xScrollSync.getDriver === 'function') {
+      const d = root.md4xScrollSync.getDriver();
+      if (d) return d;
+    }
+    // Fallback to the legacy markUserScroll-driven state.
     if (!lastUserScrollSource) return null;
     if (Date.now() - lastUserScrollTime > DRIVER_DECAY_MS) return null;
     return lastUserScrollSource;
@@ -100,6 +113,29 @@
     if (!ed || !pv) return;
     paintStrip(editorStrip,  ed);
     paintStrip(previewStrip, pv);
+    // v0.2.5 force-align: when both ticks have a Y and the driver is set,
+    // compute the residual drift between them and hand it to the FSM.
+    // FSM frameTick decides whether to emit forceAlignTick (one-shot,
+    // drift in [2..8] px, follower not at end-of-doc).
+    maybeReportDrift(ed, pv);
+  }
+
+  function maybeReportDrift(ed, pv) {
+    const driver = currentDriver();
+    if (!driver) return;
+    if (ed.cursorTickY == null || pv.cursorTickY == null) return;
+    if (!root.md4xScrollSync || !root.md4xScrollSync.setPendingAlign) return;
+    const followerSide = driver === 'editor' ? 'preview' : 'editor';
+    const driverY   = driver === 'editor' ? ed.cursorTickY : pv.cursorTickY;
+    const followerY = driver === 'editor' ? pv.cursorTickY : ed.cursorTickY;
+    const drift = driverY - followerY;
+    const followerState = driver === 'editor' ? pv : ed;
+    const atEnd =
+      typeof followerState.scrollTop === 'number'
+      && typeof followerState.viewportH === 'number'
+      && typeof followerState.scrollHeight === 'number'
+      && (followerState.scrollTop + followerState.viewportH >= followerState.scrollHeight - 1);
+    root.md4xScrollSync.setPendingAlign(followerSide, drift, atEnd);
   }
 
   function clearStrip(strip) {

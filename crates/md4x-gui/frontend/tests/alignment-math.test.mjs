@@ -1,11 +1,12 @@
 // Run: node --test crates/md4x-gui/frontend/tests/
 // Spec: docs/spec/v0.2.3-scroll-alignment-ticks.md § 6.1
+// Note: math primitives moved into scroll-sync.js (v0.2.5). This file
+// preserves the v0.2.3 test surface against the scroll-sync.math API.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
-const require = createRequire(import.meta.url);
-const m = require('../alignment-math.js');
+const m = createRequire(import.meta.url)('../scroll-sync.js').math;
 
 const SUB_OFFSET_THRESHOLD = 4;
 

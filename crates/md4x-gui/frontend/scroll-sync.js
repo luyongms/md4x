@@ -10,8 +10,15 @@
 
 (function (root, factory) {
   'use strict';
-  if (typeof module === 'object' && module.exports) module.exports = factory();
-  else root.md4xScrollSync = factory();
+  const api = factory();
+  if (typeof module === 'object' && module.exports) {
+    module.exports = api;
+  } else {
+    root.md4xScrollSync = api;
+    // Back-compat alias — alignment-math.js used to publish this.
+    // Frontend code that hasn't been updated yet still reads it.
+    root.md4xAlignmentMath = api.math;
+  }
 })(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 
