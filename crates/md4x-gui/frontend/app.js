@@ -173,6 +173,8 @@ const savedDotEl   = document.getElementById('sb-saved-dot');
 const welcome      = document.getElementById('welcome');
 const dropzone     = document.getElementById('dropzone');
 const newDraftBtn  = document.getElementById('new-draft-btn');
+const openFileBtn  = document.getElementById('open-file-btn');
+const welcomeClose = document.getElementById('welcome-close');
 const recentList   = document.getElementById('recent-list');
 const gallery      = document.getElementById('gallery');
 const galleryGrid  = document.getElementById('gallery-grid');
@@ -834,7 +836,11 @@ function syncWindowTitle() {
 }
 
 // ── Welcome / file lifecycle ────────────────────────────────────────────────
-function showWelcome() { renderRecent(); welcome.hidden = false; }
+function showWelcome() {
+  renderRecent();
+  welcome.hidden = false;
+  if (welcomeClose) welcomeClose.hidden = !(currentFilePath || editorText());
+}
 function hideWelcome() { welcome.hidden = true; }
 
 function setEditorContent(text, filePath) {
@@ -1644,9 +1650,10 @@ window.addEventListener('keydown', e => {
   if (e.key === 'Escape' && !settingsEl.hidden) { settingsEl.hidden = true; return; }
   if (e.key === 'Escape' && !undefModal.hidden) { closeUndefModal(); return; }
   if (e.key === 'Escape' && !helpModal.hidden) { closeHelp(); return; }
+  if (e.key === 'Escape' && !welcome.hidden && (currentFilePath || editorText())) { hideWelcome(); return; }
   if (!(e.metaKey || e.ctrlKey)) return;
   const k = e.key.toLowerCase();
-  if (k === 'o' && !e.shiftKey && !e.altKey) { e.preventDefault(); openFile(); }
+  if (k === 'o' && !e.shiftKey && !e.altKey) { e.preventDefault(); showWelcome(); }
   else if (k === 's' && !e.shiftKey && !e.altKey) { e.preventDefault(); saveFile(); }
   else if (k === 's' && e.shiftKey && !e.altKey) { e.preventDefault(); saveFileAs(); }
   else if (k === 'e' && !e.shiftKey && !e.altKey) { e.preventDefault(); if (!exportBtn.disabled) exportBtn.click(); }
@@ -1867,11 +1874,16 @@ async function setupDragDrop() {
   window.addEventListener('drop',     e => e.preventDefault());
 }
 newDraftBtn.addEventListener('click', newDraft);
+if (openFileBtn) openFileBtn.addEventListener('click', () => { openFile(); });
+if (welcomeClose) welcomeClose.addEventListener('click', hideWelcome);
+welcome.addEventListener('mousedown', e => {
+  if (e.target === welcome && (currentFilePath || editorText())) hideWelcome();
+});
 
 // Menu events from the native macOS menu bar (also wired via webview.eval).
 if (window.__TAURI__ && window.__TAURI__.event) {
   window.__TAURI__.event.listen('md4x_menu', (ev) => {
-    if (ev.payload === 'open') openFile();
+    if (ev.payload === 'open') showWelcome();
     else if (ev.payload === 'save') saveFile();
     else if (ev.payload === 'save_as') saveFileAs();
     else if (ev.payload === 'export' && !exportBtn.disabled) exportBtn.click();

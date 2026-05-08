@@ -624,6 +624,24 @@ body.theme-light .cm-scroller::-webkit-scrollbar-thumb:hover { background: rgba(
 .undef-btn-primary:disabled { opacity: 0.55; cursor: default; }
 
 /* ── Welcome state ─────────────────────────────────────────────────── */
+#welcome-close {
+  position: absolute;
+  top: 12px;
+  right: 14px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: none;
+  background: var(--md4x-accent-soft);
+  color: var(--md4x-text-secondary);
+  font-size: 14px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 101;
+}
+#welcome-close:hover { background: var(--md4x-accent-tint); color: var(--md4x-text); }
 #welcome {
   position: fixed;
   inset: 52px 0 28px 0;
@@ -700,23 +718,41 @@ body.theme-light .cm-scroller::-webkit-scrollbar-thumb:hover { background: rgba(
   border-radius: 4px;
   font-size: 12px;
 }
-#new-draft-btn {
-  position: relative;
+.welcome-actions {
   margin-top: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+#new-draft-btn,
+#open-file-btn {
+  position: relative;
   padding: 7px 16px;
-  background: var(--md4x-accent);
-  color: #fff;
-  border: none;
   border-radius: 8px;
   font-size: 13px;
   font-weight: 600;
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  border: none;
+  cursor: pointer;
+}
+#new-draft-btn {
+  background: var(--md4x-accent);
+  color: #fff;
   box-shadow: 0 1px 3px rgba(94, 92, 230, 0.35), 0 4px 12px rgba(94, 92, 230, 0.2);
 }
 #new-draft-btn:hover { background: var(--md4x-accent-hover); }
 #new-draft-btn:active { background: var(--md4x-accent-press); }
+#open-file-btn {
+  background: transparent;
+  color: var(--md4x-accent);
+  border: 1px solid var(--md4x-accent);
+}
+#open-file-btn:hover { background: var(--md4x-accent-tint); }
+#open-file-btn:active { background: var(--md4x-accent-soft); }
 .kbd {
   font-family: var(--font-mono);
   font-size: 11px;

@@ -59,13 +59,17 @@
 
   <!-- Welcome overlay -->
   <div id="welcome" hidden>
+    <button id="welcome-close" type="button" aria-label="Close" hidden>✕</button>
     <div class="welcome-card">
       <div class="wordmark">md<span class="accent">4x</span></div>
       <p class="tagline">Markdown → magazine-quality PDF</p>
       <div id="dropzone">
         <p>Drop a <code>.md</code> file here to open</p>
         <p class="muted">or</p>
-        <button id="new-draft-btn">+ New draft <span class="kbd">⌘N</span></button>
+        <div class="welcome-actions">
+          <button id="new-draft-btn">+ New draft <span class="kbd">⌘N</span></button>
+          <button id="open-file-btn" type="button">Open… <span class="kbd">⌘O</span></button>
+        </div>
       </div>
       <div class="welcome-recent">
         <h2>Recent</h2>
