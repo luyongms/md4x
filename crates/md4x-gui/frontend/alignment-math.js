@@ -88,6 +88,29 @@
     return /^(ATX|Setext)Heading[1-6]?$/.test(kind) || /^H[1-6]$/.test(kind);
   }
 
+  // lineYInBlock: viewport/doc-Y of source line `L` interpolated linearly
+  // inside a top-level block whose top is at `blockTop` and height is
+  // `blockHeight`, given the block spans source lines [L1, L2].
+  // Single-line blocks (L1 == L2) collapse to blockTop.
+  function lineYInBlock(L, L1, L2, blockTop, blockHeight) {
+    if (L2 <= L1) return blockTop;
+    let fraction = (L - L1) / (L2 - L1);
+    if (fraction < 0) fraction = 0;
+    else if (fraction > 1) fraction = 1;
+    return blockTop + fraction * blockHeight;
+  }
+
+  // lineFromClickY: source line under a click at `clickY` (relative to
+  // the block element's top) inside a block element of `height` px,
+  // spanning source lines [L1, L2]. Inverse of lineYInBlock.
+  function lineFromClickY(clickY, height, L1, L2) {
+    if (height <= 0 || L2 <= L1) return L1;
+    let fraction = clickY / height;
+    if (fraction < 0) fraction = 0;
+    else if (fraction > 1) fraction = 1;
+    return L1 + Math.round(fraction * (L2 - L1));
+  }
+
   return {
     currentBlock,
     tickY,
@@ -95,5 +118,7 @@
     hasDrift,
     correctionTarget,
     isHeadingKind,
+    lineYInBlock,
+    lineFromClickY,
   };
 });

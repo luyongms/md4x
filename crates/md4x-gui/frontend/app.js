@@ -494,11 +494,23 @@ function suspendSync(windowMs = 200) {
   }, windowMs + 20);
 }
 
-// Cursor-anchored sync: find the lezer block containing the cursor head
-// and scroll the preview so that block's top is at the viewport top.
-// Used when the user types or clicks in the editor — pure-scroll-anchored
-// sync would miss those events because the editor scroll position usually
-// doesn't change on typing.
+// Parse comrak's `data-sourcepos="L1:C1-L2:C2"` into [L1, L2] (1-based).
+// Returns null if absent / malformed (e.g. admonish wrappers without
+// sourcepos). Caller falls back to block-top anchoring when null.
+function parseSourcepos(el) {
+  if (!el || !el.dataset) return null;
+  const sp = el.dataset.sourcepos;
+  if (!sp) return null;
+  const m = sp.match(/^(\d+):\d+-(\d+):\d+$/);
+  if (!m) return null;
+  return [parseInt(m[1], 10), parseInt(m[2], 10)];
+}
+
+// Cursor-anchored sync (line-level, v0.2.4): find cursor's lezer block,
+// interpolate the cursor's source line within the matching preview
+// block by `data-sourcepos`, and place that interpolated Y at the same
+// viewport offset as the cursor line in the editor. Falls back to
+// block-top alignment if the preview block lacks sourcepos.
 function syncPreviewFromCursor() {
   if (!cm || isSyncSuspended()) return;
   const iframe = activeIframe();
@@ -511,17 +523,36 @@ function syncPreviewFromCursor() {
   const k = lezerBlockIndexAtPos(lBlocks, head);
   const idx = Math.min(k, cache.blocks.length - 1);
   if (idx < 0) return;
-  // Force-sync paths (click, type) re-measure the target block live —
-  // the cached top might be stale if mermaid/katex finished resizing
-  // after the cache was built. One bounding-rect read is cheap.
-  const liveTop = elDocTop(cache.blocks[idx].el, win);
-  // Cursor's block in editor viewport — preserve same Y in preview.
+
+  // Cursor line (1-based) in source.
+  const cursorLine = cm.state.doc.lineAt(head).number;
+
+  // Editor: cursor's line viewport-Y (cursor is always rendered).
   const sd = cm.scrollDOM;
-  const blockYInView = editorBlockYInViewport(lBlocks[k].from, sd);
-  let target = clampPreviewY(win, liveTop - blockYInView);
-  // Special case: cursor at the FIRST block of the doc → reveal everything
-  // ABOVE the first authored block (cover page, any preprocessor preamble).
-  // Otherwise the preview lands at the H1 and the user never sees the cover.
+  const sdRect = sd.getBoundingClientRect();
+  let cursorYInView;
+  try {
+    const c = cm.coordsAtPos(head);
+    cursorYInView = c ? (c.top - sdRect.top) : 0;
+  } catch (_) { cursorYInView = 0; }
+
+  // Preview: live block element top + height. Live read avoids stale
+  // tops from mermaid/katex async layout.
+  const blockEl = cache.blocks[idx].el;
+  const liveTop = elDocTop(blockEl, win);
+  const blockHeight = blockEl.offsetHeight;
+  const sp = parseSourcepos(blockEl);
+  let previewLineDocY;
+  if (sp && sp[1] >= sp[0]) {
+    previewLineDocY = window.md4xAlignmentMath.lineYInBlock(
+      cursorLine, sp[0], sp[1], liveTop, blockHeight
+    );
+  } else {
+    previewLineDocY = liveTop;
+  }
+
+  let target = clampPreviewY(win, previewLineDocY - cursorYInView);
+  // Special case: cursor at FIRST block → reveal cover-page chrome.
   if (k === 0) target = 0;
   previewExpected = Math.round(target);
   previewLockUntil = Date.now() + SMOOTH_LOCKOUT_MS;
@@ -573,15 +604,16 @@ function consumeExpectedScroll(side, currentPos) {
   return ref !== null && Math.abs(Math.round(currentPos) - ref) <= SCROLL_TOLERANCE_PX;
 }
 
-// Click-on-preview: walk up from the click target to find the top-level
-// preview block it belongs to, then smooth-scroll the editor to the
-// corresponding lezer block.
-function syncEditorFromPreviewClick(win, target) {
-  if (!cm || !target || isSyncSuspended()) return;
+// Click-on-preview (line-level, v0.2.4): walk up to the top-level preview
+// block, interpolate which source line was under the click via the
+// block's `data-sourcepos` and click-Y, dispatch a CodeMirror cursor
+// jump to that line. The selection-set update fires syncPreviewFromCursor
+// which re-anchors the preview at the new cursor line.
+function syncEditorFromPreviewClick(win, evt) {
+  if (!cm || !evt || isSyncSuspended()) return;
   const cache = getPreviewBlocksCached(activeIframe());
   if (!cache.blocks.length) return;
-  // Walk up to a top-level body child.
-  let el = target;
+  let el = evt.target;
   const body = win.document.body;
   while (el && el.parentElement && el.parentElement !== body) el = el.parentElement;
   if (!el || el.parentElement !== body) return;
@@ -590,24 +622,36 @@ function syncEditorFromPreviewClick(win, target) {
   const lBlocks = getLezerBlocks();
   const editorIdx = Math.min(idx, lBlocks.length - 1);
   if (editorIdx < 0) return;
-  const fromPos = lBlocks[editorIdx].from;
-  const sd = cm.scrollDOM;
-  let target_y;
-  try {
-    const c = cm.coordsAtPos(fromPos);
-    if (!c) return;
-    const editorRect = sd.getBoundingClientRect();
-    const blockYInEditor = c.top - editorRect.top;
-    // Where the user clicked in the preview viewport.
-    const clickedRect = el.getBoundingClientRect();
-    const previewBlockYInView = clickedRect.top;
-    // Place editor block at the same Y in the editor viewport.
-    target_y = sd.scrollTop + (blockYInEditor - previewBlockYInView);
-  } catch (_) { return; }
-  target_y = clampEditorY(sd, target_y);
-  editorExpected = Math.round(target_y);
-  editorLockUntil = Date.now() + SMOOTH_LOCKOUT_MS;
-  sd.scrollTo({ top: target_y, left: 0, behavior: 'smooth' });
+
+  // Source-line interpolation from click-Y inside element.
+  const rect = el.getBoundingClientRect();
+  const clickY = (typeof evt.clientY === 'number') ? evt.clientY - rect.top : 0;
+  const sp = parseSourcepos(el);
+  let targetLine;
+  if (sp && sp[1] >= sp[0]) {
+    targetLine = window.md4xAlignmentMath.lineFromClickY(
+      clickY, rect.height, sp[0], sp[1]
+    );
+  } else {
+    // Fallback: jump to block's first source line via lezer range.
+    targetLine = cm.state.doc.lineAt(lBlocks[editorIdx].from).number;
+  }
+  // Clamp to doc range.
+  const maxLine = cm.state.doc.lines;
+  if (targetLine < 1) targetLine = 1;
+  else if (targetLine > maxLine) targetLine = maxLine;
+
+  const lineFromPos = cm.state.doc.line(targetLine).from;
+  // Move the cursor + scroll the editor so the line is centered.
+  cm.dispatch({
+    selection: { anchor: lineFromPos, head: lineFromPos },
+    scrollIntoView: true,
+  });
+  cm.focus();
+  // Belt: explicitly schedule preview re-anchor on top of the
+  // selection-set updateListener path so the alignment is visibly
+  // applied even if the listener path is starved by other work.
+  rafSchedSync('editorCursor', syncPreviewFromCursor);
 }
 
 // rAF coalesce: under fast scroll, dozens of scroll events fire per frame.
@@ -681,11 +725,23 @@ function getPreviewAlignmentState() {
   const kinds = cache.blocks.map(b => b.kind);
   const cursorOrdinal = getCursorBlockOrdinal();
   let cursorTickY = null;
-  if (cursorOrdinal >= 0 && cursorOrdinal < cache.blocks.length) {
-    // Live read instead of cached top — preview block may have shifted
-    // since cache was built (mermaid/katex async layout).
-    const liveTop = elDocTop(cache.blocks[cursorOrdinal].el, win);
-    const y = liveTop - win.scrollY;
+  if (cursorOrdinal >= 0 && cursorOrdinal < cache.blocks.length && cm) {
+    // Line-level (v0.2.4): interpolate the cursor's source line within
+    // the matching preview block by data-sourcepos.
+    const blockEl = cache.blocks[cursorOrdinal].el;
+    const liveTop = elDocTop(blockEl, win);
+    const blockHeight = blockEl.offsetHeight;
+    const cursorLine = cm.state.doc.lineAt(cm.state.selection.main.head).number;
+    const sp = parseSourcepos(blockEl);
+    let lineDocY;
+    if (sp && sp[1] >= sp[0]) {
+      lineDocY = window.md4xAlignmentMath.lineYInBlock(
+        cursorLine, sp[0], sp[1], liveTop, blockHeight
+      );
+    } else {
+      lineDocY = liveTop;
+    }
+    const y = lineDocY - win.scrollY;
     if (y >= 0 && y <= win.innerHeight) cursorTickY = y;
   }
   return {
@@ -1216,7 +1272,7 @@ function attachIframeHandlers(iframe) {
   // corresponding lezer block.
   doc.addEventListener('click', (e) => {
     if (iframe !== activeIframe()) return;
-    syncEditorFromPreviewClick(win, e.target);
+    syncEditorFromPreviewClick(win, e);
   });
   fitPage(iframe);
   if (win.ResizeObserver) {
