@@ -307,9 +307,102 @@
     return { state: next, outputs: out() };
   }
 
+  // ── Side-effects shell ──────────────────────────────────────────────────
+  // Drives the pure reducer with real callbacks, an rAF frameTick loop,
+  // and a 600 ms idle decay. Adapters in app.js plumb the actual DOM
+  // reads/writes via callbacks.
+
+  function createShell() {
+    let state = initial();
+    let callbacks = null;
+    let frameScheduled = false;
+    let idleTimer = null;
+
+    function needsFrameTick(s) {
+      return s.fsm === 'LOCKED_PROGRAMMATIC' || s.pendingAlign != null;
+    }
+
+    function scheduleFrameIfNeeded() {
+      if (frameScheduled) return;
+      if (!needsFrameTick(state)) return;
+      frameScheduled = true;
+      const raf = (typeof requestAnimationFrame !== 'undefined')
+        ? requestAnimationFrame
+        : (cb) => setTimeout(cb, 16);
+      raf(() => {
+        frameScheduled = false;
+        dispatch({ type: 'frameTick' });
+      });
+    }
+
+    function armIdleTimer() {
+      if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
+      if (state.fsm === 'DRIVING_EDITOR' || state.fsm === 'DRIVING_PREVIEW') {
+        idleTimer = setTimeout(() => dispatch({ type: 'idleTimeout' }), 600);
+      }
+    }
+
+    function emit(outputs) {
+      if (!callbacks) return;
+      for (const o of outputs) {
+        switch (o.type) {
+          case 'publishDriver':
+            callbacks.onDriverChange && callbacks.onDriverChange(o.side); break;
+          case 'setPreviewScrollTop':
+            callbacks.setPreviewScrollTop && callbacks.setPreviewScrollTop(o.y); break;
+          case 'setEditorScrollTop':
+            callbacks.setEditorScrollTop && callbacks.setEditorScrollTop(o.y); break;
+          case 'setEditorCursor':
+            callbacks.setEditorCursor && callbacks.setEditorCursor(o.line); break;
+          case 'forceAlignTick':
+            callbacks.forceAlignTick && callbacks.forceAlignTick(o.side, o.delta); break;
+          case 'invalidateBlockCache':
+            callbacks.invalidateBlockCache && callbacks.invalidateBlockCache(); break;
+          case 'resolveFromCursor':
+            callbacks.resolveFromCursor && callbacks.resolveFromCursor(o.line); break;
+          case 'resolveFromPreviewScroll':
+            callbacks.resolveFromPreviewScroll && callbacks.resolveFromPreviewScroll(o.y); break;
+          case 'resolveFromEditorScroll':
+            callbacks.resolveFromEditorScroll && callbacks.resolveFromEditorScroll(o.y); break;
+          case 'resolveOnce':
+            callbacks.resolveOnce && callbacks.resolveOnce(); break;
+        }
+      }
+    }
+
+    function dispatch(action) {
+      const r = reduce(state, action);
+      state = r.state;
+      emit(r.outputs);
+      scheduleFrameIfNeeded();
+      armIdleTimer();
+    }
+
+    function init(opts) {
+      callbacks = (opts && opts.callbacks) || {};
+    }
+
+    function getState()  { return state; }
+    function getDriver() { return state.prevDriver || null; }
+
+    function setPendingAlign(follower, drift, atEnd) {
+      state = { ...state, pendingAlign: { follower, drift, atEnd: !!atEnd } };
+      scheduleFrameIfNeeded();
+    }
+
+    return { init, dispatch, getState, getDriver, setPendingAlign };
+  }
+
+  const shell = createShell();
+
   return {
-    reduce,
-    initial,
-    math,
+    // pure layer (testable)
+    reduce, initial, math,
+    // shell layer (used by adapters)
+    init: (opts) => shell.init(opts),
+    dispatch: (action) => shell.dispatch(action),
+    getState: () => shell.getState(),
+    getDriver: () => shell.getDriver(),
+    setPendingAlign: (follower, drift, atEnd) => shell.setPendingAlign(follower, drift, atEnd),
   };
 });

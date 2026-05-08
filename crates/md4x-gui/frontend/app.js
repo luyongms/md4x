@@ -1026,6 +1026,33 @@ function initAlignmentTicks() {
     },
   });
 }
+
+// Scroll-sync coordinator (v0.2.5). Pure FSM in the module; this adapter
+// plumbs callbacks back to existing app.js DOM helpers. Phase B wires
+// editor cursor only — the resolver path delegates to the existing
+// syncPreviewFromCursor so behaviour is unchanged. Other paths still
+// run through the legacy code (rafSchedSync, etc.) until later phases
+// migrate them.
+function initScrollSync() {
+  if (!window.md4xScrollSync) return;
+  window.md4xScrollSync.init({
+    callbacks: {
+      resolveFromCursor: () => syncPreviewFromCursor(),
+      // resolveOnce fires after splitterDragEnd / renderComplete in the
+      // FSM. Use the existing cursor-anchored re-sync as the canonical
+      // "rebuild and re-place" routine.
+      resolveOnce: () => syncPreviewFromCursor(),
+      // Block-cache invalidation: delegate to existing helper.
+      invalidateBlockCache: () => invalidatePreviewBlocksCache(),
+      // Driver-change publish: alignment-ticks still drives its own
+      // state in this phase; phase D wires it through.
+      onDriverChange: () => {},
+      // Other callbacks (setPreviewScrollTop, setEditorScrollTop,
+      // setEditorCursor, forceAlignTick, resolveFromPreviewScroll,
+      // resolveFromEditorScroll) plumb in later phases as we migrate.
+    },
+  });
+}
 function scheduleAlignmentTicks() {
   if (window.md4xAlignmentTicks) window.md4xAlignmentTicks.schedule();
 }
@@ -2192,10 +2219,18 @@ async function init() {
       scheduleRender();
     }
     // Cursor moved (typing, click, arrow keys) or doc changed — anchor the
-    // preview to the cursor's block. rAF-coalesced so a paragraph of typing
-    // triggers at most one sync per frame.
+    // preview to the cursor's block. Routed through the scroll-sync
+    // coordinator (Phase B): the FSM tracks driver/driver state, the
+    // existing syncPreviewFromCursor still does the math via the
+    // resolveFromCursor callback wired in initScrollSync.
     if (update.docChanged || update.selectionSet) {
-      rafSchedSync('editorCursor', syncPreviewFromCursor);
+      const head = update.state.selection.main.head;
+      const line = update.state.doc.lineAt(head).number;
+      if (window.md4xScrollSync) {
+        window.md4xScrollSync.dispatch({ type: 'editorCursor', line });
+      } else {
+        rafSchedSync('editorCursor', syncPreviewFromCursor);
+      }
     }
     if (update.docChanged || update.selectionSet || update.geometryChanged || update.viewportChanged) {
       scheduleAlignmentTicks();
@@ -2225,6 +2260,7 @@ async function init() {
   syncWindowTitle();
   await switchTemplate(currentTemplate);
   initAlignmentTicks();
+  initScrollSync();
   scheduleAlignmentTicks();
   if (!editorText() && !currentFilePath) showWelcome();
 }
