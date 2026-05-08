@@ -120,22 +120,38 @@
     maybeReportDrift(ed, pv);
   }
 
+  // Force-align cooldown — avoids the small-drift feedback loop where
+  // every render re-arms pendingAlign and the follower scrolls by 1-2 px
+  // per frame indefinitely. After one align attempt we wait 350 ms before
+  // re-arming. The 350 ms is long enough to outlast async KaTeX/mermaid
+  // layout settling and short enough to feel like "single corrective
+  // nudge" to the user.
+  let lastAlignArmedAt = 0;
+  const ALIGN_COOLDOWN_MS = 350;
   function maybeReportDrift(ed, pv) {
     const driver = currentDriver();
     if (!driver) return;
     if (ed.cursorTickY == null || pv.cursorTickY == null) return;
     if (!root.md4xScrollSync || !root.md4xScrollSync.setPendingAlign) return;
+    const now = Date.now();
+    if (now - lastAlignArmedAt < ALIGN_COOLDOWN_MS) return;
     const followerSide = driver === 'editor' ? 'preview' : 'editor';
     const driverY   = driver === 'editor' ? ed.cursorTickY : pv.cursorTickY;
     const followerY = driver === 'editor' ? pv.cursorTickY : ed.cursorTickY;
     const drift = driverY - followerY;
+    const abs = Math.abs(drift);
+    // Cheap pre-filter — match the FSM's force-align gate so we don't
+    // burn the cooldown on a no-op arm.
+    if (abs <= 1 || abs > 8) return;
     const followerState = driver === 'editor' ? pv : ed;
     const atEnd =
       typeof followerState.scrollTop === 'number'
       && typeof followerState.viewportH === 'number'
       && typeof followerState.scrollHeight === 'number'
       && (followerState.scrollTop + followerState.viewportH >= followerState.scrollHeight - 1);
-    root.md4xScrollSync.setPendingAlign(followerSide, drift, atEnd);
+    if (atEnd) return;
+    lastAlignArmedAt = now;
+    root.md4xScrollSync.setPendingAlign(followerSide, drift, false);
   }
 
   function clearStrip(strip) {
