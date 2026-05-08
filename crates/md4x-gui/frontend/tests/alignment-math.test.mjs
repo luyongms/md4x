@@ -124,6 +124,36 @@ test('is_heading_kind: editor lezer names', () => {
   assert.equal(m.isHeadingKind('HTMLBlock'), false);
 });
 
+// ── line-level interpolation (v0.2.4) ─────────────────────────────────────
+
+test('lineYInBlock: single-line block collapses to blockTop', () => {
+  assert.equal(m.lineYInBlock(5, 5, 5, 100, 20), 100);
+  assert.equal(m.lineYInBlock(5, 5, 4, 100, 20), 100); // L2 < L1 guard
+});
+
+test('lineYInBlock: linear interpolation inside block', () => {
+  assert.equal(m.lineYInBlock(1, 1, 5, 0, 80), 0);   // first line
+  assert.equal(m.lineYInBlock(5, 1, 5, 0, 80), 80);  // last line
+  assert.equal(m.lineYInBlock(3, 1, 5, 0, 80), 40);  // middle
+});
+
+test('lineYInBlock: clamps L outside [L1, L2]', () => {
+  assert.equal(m.lineYInBlock(0,  1, 5, 100, 80), 100); // below
+  assert.equal(m.lineYInBlock(99, 1, 5, 100, 80), 180); // above
+});
+
+test('lineFromClickY: inverse of lineYInBlock', () => {
+  // 5 lines [10..14], 100px high, click at top → line 10.
+  assert.equal(m.lineFromClickY(0,   100, 10, 14), 10);
+  assert.equal(m.lineFromClickY(100, 100, 10, 14), 14);
+  assert.equal(m.lineFromClickY(50,  100, 10, 14), 12); // round to mid
+});
+
+test('lineFromClickY: degenerate cases', () => {
+  assert.equal(m.lineFromClickY(50, 0,   10, 14), 10); // height 0
+  assert.equal(m.lineFromClickY(50, 100, 10, 10), 10); // single-line
+});
+
 test('is_heading_kind: preview tag names', () => {
   assert.equal(m.isHeadingKind('H1'), true);
   assert.equal(m.isHeadingKind('H6'), true);

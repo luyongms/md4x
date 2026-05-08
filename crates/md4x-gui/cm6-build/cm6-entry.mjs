@@ -12,6 +12,11 @@ import {
 } from "@codemirror/language";
 import { markdown } from "@codemirror/lang-markdown";
 import { tags as t } from "@lezer/highlight";
+import {
+  search, searchKeymap, openSearchPanel, closeSearchPanel,
+  getSearchQuery, setSearchQuery, SearchQuery,
+  findNext, findPrevious, replaceNext, replaceAll,
+} from "@codemirror/search";
 
 window.MD4X_CM6 = {
   EditorState, EditorSelection, Compartment,
@@ -21,4 +26,7 @@ window.MD4X_CM6 = {
   syntaxHighlighting, defaultHighlightStyle, HighlightStyle,
   bracketMatching, indentOnInput, syntaxTree,
   markdown, t,
+  search, searchKeymap, openSearchPanel, closeSearchPanel,
+  getSearchQuery, setSearchQuery, SearchQuery,
+  findNext, findPrevious, replaceNext, replaceAll,
 };

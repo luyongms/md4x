@@ -106,6 +106,10 @@ function buildExtensions(onUpdate) {
       ...CM.historyKeymap,
       CM.indentWithTab,
     ]),
+    // Custom search bar lives outside CM (full window width). We still
+    // mount the search extension so the in-editor match decorations and
+    // setSearchQuery / findNext / replaceAll commands are available.
+    CM.search({ top: true }),
     CM.markdown(),
     CM.syntaxHighlighting(md4xHighlightStyle()),
     md4xBaseTheme(),
@@ -173,6 +177,8 @@ const savedDotEl   = document.getElementById('sb-saved-dot');
 const welcome      = document.getElementById('welcome');
 const dropzone     = document.getElementById('dropzone');
 const newDraftBtn  = document.getElementById('new-draft-btn');
+const openFileBtn  = document.getElementById('open-file-btn');
+const welcomeClose = document.getElementById('welcome-close');
 const recentList   = document.getElementById('recent-list');
 const gallery      = document.getElementById('gallery');
 const galleryGrid  = document.getElementById('gallery-grid');
@@ -494,11 +500,23 @@ function suspendSync(windowMs = 200) {
   }, windowMs + 20);
 }
 
-// Cursor-anchored sync: find the lezer block containing the cursor head
-// and scroll the preview so that block's top is at the viewport top.
-// Used when the user types or clicks in the editor — pure-scroll-anchored
-// sync would miss those events because the editor scroll position usually
-// doesn't change on typing.
+// Parse comrak's `data-sourcepos="L1:C1-L2:C2"` into [L1, L2] (1-based).
+// Returns null if absent / malformed (e.g. admonish wrappers without
+// sourcepos). Caller falls back to block-top anchoring when null.
+function parseSourcepos(el) {
+  if (!el || !el.dataset) return null;
+  const sp = el.dataset.sourcepos;
+  if (!sp) return null;
+  const m = sp.match(/^(\d+):\d+-(\d+):\d+$/);
+  if (!m) return null;
+  return [parseInt(m[1], 10), parseInt(m[2], 10)];
+}
+
+// Cursor-anchored sync (line-level, v0.2.4): find cursor's lezer block,
+// interpolate the cursor's source line within the matching preview
+// block by `data-sourcepos`, and place that interpolated Y at the same
+// viewport offset as the cursor line in the editor. Falls back to
+// block-top alignment if the preview block lacks sourcepos.
 function syncPreviewFromCursor() {
   if (!cm || isSyncSuspended()) return;
   const iframe = activeIframe();
@@ -511,17 +529,36 @@ function syncPreviewFromCursor() {
   const k = lezerBlockIndexAtPos(lBlocks, head);
   const idx = Math.min(k, cache.blocks.length - 1);
   if (idx < 0) return;
-  // Force-sync paths (click, type) re-measure the target block live —
-  // the cached top might be stale if mermaid/katex finished resizing
-  // after the cache was built. One bounding-rect read is cheap.
-  const liveTop = elDocTop(cache.blocks[idx].el, win);
-  // Cursor's block in editor viewport — preserve same Y in preview.
+
+  // Cursor line (1-based) in source.
+  const cursorLine = cm.state.doc.lineAt(head).number;
+
+  // Editor: cursor's line viewport-Y (cursor is always rendered).
   const sd = cm.scrollDOM;
-  const blockYInView = editorBlockYInViewport(lBlocks[k].from, sd);
-  let target = clampPreviewY(win, liveTop - blockYInView);
-  // Special case: cursor at the FIRST block of the doc → reveal everything
-  // ABOVE the first authored block (cover page, any preprocessor preamble).
-  // Otherwise the preview lands at the H1 and the user never sees the cover.
+  const sdRect = sd.getBoundingClientRect();
+  let cursorYInView;
+  try {
+    const c = cm.coordsAtPos(head);
+    cursorYInView = c ? (c.top - sdRect.top) : 0;
+  } catch (_) { cursorYInView = 0; }
+
+  // Preview: live block element top + height. Live read avoids stale
+  // tops from mermaid/katex async layout.
+  const blockEl = cache.blocks[idx].el;
+  const liveTop = elDocTop(blockEl, win);
+  const blockHeight = blockEl.offsetHeight;
+  const sp = parseSourcepos(blockEl);
+  let previewLineDocY;
+  if (sp && sp[1] >= sp[0]) {
+    previewLineDocY = window.md4xAlignmentMath.lineYInBlock(
+      cursorLine, sp[0], sp[1], liveTop, blockHeight
+    );
+  } else {
+    previewLineDocY = liveTop;
+  }
+
+  let target = clampPreviewY(win, previewLineDocY - cursorYInView);
+  // Special case: cursor at FIRST block → reveal cover-page chrome.
   if (k === 0) target = 0;
   previewExpected = Math.round(target);
   previewLockUntil = Date.now() + SMOOTH_LOCKOUT_MS;
@@ -573,15 +610,16 @@ function consumeExpectedScroll(side, currentPos) {
   return ref !== null && Math.abs(Math.round(currentPos) - ref) <= SCROLL_TOLERANCE_PX;
 }
 
-// Click-on-preview: walk up from the click target to find the top-level
-// preview block it belongs to, then smooth-scroll the editor to the
-// corresponding lezer block.
-function syncEditorFromPreviewClick(win, target) {
-  if (!cm || !target || isSyncSuspended()) return;
+// Click-on-preview (line-level, v0.2.4): walk up to the top-level preview
+// block, interpolate which source line was under the click via the
+// block's `data-sourcepos` and click-Y, dispatch a CodeMirror cursor
+// jump to that line. The selection-set update fires syncPreviewFromCursor
+// which re-anchors the preview at the new cursor line.
+function syncEditorFromPreviewClick(win, evt) {
+  if (!cm || !evt || isSyncSuspended()) return;
   const cache = getPreviewBlocksCached(activeIframe());
   if (!cache.blocks.length) return;
-  // Walk up to a top-level body child.
-  let el = target;
+  let el = evt.target;
   const body = win.document.body;
   while (el && el.parentElement && el.parentElement !== body) el = el.parentElement;
   if (!el || el.parentElement !== body) return;
@@ -590,24 +628,263 @@ function syncEditorFromPreviewClick(win, target) {
   const lBlocks = getLezerBlocks();
   const editorIdx = Math.min(idx, lBlocks.length - 1);
   if (editorIdx < 0) return;
-  const fromPos = lBlocks[editorIdx].from;
-  const sd = cm.scrollDOM;
-  let target_y;
-  try {
-    const c = cm.coordsAtPos(fromPos);
-    if (!c) return;
-    const editorRect = sd.getBoundingClientRect();
-    const blockYInEditor = c.top - editorRect.top;
-    // Where the user clicked in the preview viewport.
-    const clickedRect = el.getBoundingClientRect();
-    const previewBlockYInView = clickedRect.top;
-    // Place editor block at the same Y in the editor viewport.
-    target_y = sd.scrollTop + (blockYInEditor - previewBlockYInView);
-  } catch (_) { return; }
-  target_y = clampEditorY(sd, target_y);
-  editorExpected = Math.round(target_y);
-  editorLockUntil = Date.now() + SMOOTH_LOCKOUT_MS;
-  sd.scrollTo({ top: target_y, left: 0, behavior: 'smooth' });
+
+  // Source-line interpolation from click-Y inside element.
+  const rect = el.getBoundingClientRect();
+  const clickY = (typeof evt.clientY === 'number') ? evt.clientY - rect.top : 0;
+  const sp = parseSourcepos(el);
+  let targetLine;
+  if (sp && sp[1] >= sp[0]) {
+    targetLine = window.md4xAlignmentMath.lineFromClickY(
+      clickY, rect.height, sp[0], sp[1]
+    );
+  } else {
+    // Fallback: jump to block's first source line via lezer range.
+    targetLine = cm.state.doc.lineAt(lBlocks[editorIdx].from).number;
+  }
+  // Clamp to doc range.
+  const maxLine = cm.state.doc.lines;
+  if (targetLine < 1) targetLine = 1;
+  else if (targetLine > maxLine) targetLine = maxLine;
+
+  const lineFromPos = cm.state.doc.line(targetLine).from;
+  // Move the cursor + scroll the editor so the line is centered.
+  cm.dispatch({
+    selection: { anchor: lineFromPos, head: lineFromPos },
+    scrollIntoView: true,
+  });
+  cm.focus();
+  // Belt: explicitly schedule preview re-anchor on top of the
+  // selection-set updateListener path so the alignment is visibly
+  // applied even if the listener path is starved by other work.
+  rafSchedSync('editorCursor', syncPreviewFromCursor);
+}
+
+// ── Search → preview highlight bridge (v0.2.5) ─────────────────────────────
+// Editor query/state → preview-highlight.js. CSS Custom Highlight API; no
+// DOM mutation in the iframe. Pill fires when active match has no Range.
+const PREVIEW_HIGHLIGHT_CSS =
+  '::highlight(md4x-search) { background-color: #fff48a; color: inherit; } ' +
+  '::highlight(md4x-search-active) { background-color: #ffb547; color: inherit; }';
+
+function ensurePreviewHighlightCSS(doc) {
+  if (!doc || !doc.head) return;
+  if (doc.getElementById('md4x-search-css')) return;
+  const s = doc.createElement('style');
+  s.id = 'md4x-search-css';
+  s.textContent = PREVIEW_HIGHLIGHT_CSS;
+  doc.head.appendChild(s);
+}
+
+function searchActiveOrdinal(query) {
+  // Map editor's main selection head → ordinal-among-matches in source text.
+  if (!cm || !query || !query.search) return -1;
+  const head = cm.state.selection.main.head;
+  const docText = cm.state.doc.toString();
+  // Use preview-highlight's findMatches to keep flag semantics in lockstep.
+  const flags = {
+    caseSensitive: !!query.caseSensitive,
+    wholeWord: !!query.wholeWord,
+    regex: !!query.regexp,
+  };
+  const ph = window.md4xPreviewHighlight;
+  if (!ph) return -1;
+  const matches = ph.findMatches(docText, query.search, flags);
+  for (let i = 0; i < matches.length; i++) {
+    if (matches[i][0] <= head && head <= matches[i][1]) return i;
+  }
+  // Cursor between matches → nearest-prior match.
+  let prev = -1;
+  for (let i = 0; i < matches.length; i++) {
+    if (matches[i][1] <= head) prev = i; else break;
+  }
+  return prev;
+}
+
+function isSearchPanelOpen() {
+  const bar = searchBarEl();
+  return !!(bar && !bar.hidden);
+}
+
+function clearSearchVisuals() {
+  const ph = window.md4xPreviewHighlight;
+  if (ph) ph.clear();
+  const iframe = activeIframe();
+  if (iframe && iframe.contentWindow) {
+    const win = iframe.contentWindow;
+    if (win.__md4xHl && win.__md4xHl.clear) win.__md4xHl.clear();
+    if (win.__md4xHlActive && win.__md4xHlActive.clear) win.__md4xHlActive.clear();
+  }
+  updateSearchPill(false);
+  updateSearchCounter(0, 0, -1);
+}
+
+function readSearchFlagsFromBar() {
+  const tCase  = document.getElementById('search-toggle-case');
+  const tWord  = document.getElementById('search-toggle-word');
+  const tRegex = document.getElementById('search-toggle-regex');
+  return {
+    caseSensitive: tCase && tCase.getAttribute('aria-pressed') === 'true',
+    wholeWord:     tWord && tWord.getAttribute('aria-pressed') === 'true',
+    regex:         tRegex && tRegex.getAttribute('aria-pressed') === 'true',
+  };
+}
+
+function syncSearchToPreview() {
+  const ph = window.md4xPreviewHighlight;
+  if (!ph || !cm || !CM.getSearchQuery) return;
+  if (!isSearchPanelOpen()) { clearSearchVisuals(); return; }
+  const iframe = activeIframe();
+  if (!iframe || !iframe.contentDocument) return;
+  ensurePreviewHighlightCSS(iframe.contentDocument);
+  const q = CM.getSearchQuery(cm.state);
+  const query = (q && q.search) ? q.search : '';
+  if (!query) { clearSearchVisuals(); return; }
+  const flags = {
+    caseSensitive: !!q.caseSensitive,
+    wholeWord: !!q.wholeWord,
+    regex: !!q.regexp,
+  };
+  const activeOrd = searchActiveOrdinal(q);
+  ph.update(iframe.contentDocument, query, flags, activeOrd);
+  const docText = cm.state.doc.toString();
+  const N = ph.findMatches(docText, query, flags).length;
+  const M = ph.countVisible();
+  updateSearchCounter(N, M, activeOrd);
+  const activeHasRange = activeOrd >= 0 && ph.hasRangeForOrdinal(activeOrd);
+  updateSearchPill(activeOrd >= 0 && !activeHasRange);
+}
+
+// Bar-bound update helpers — in-bar counter and inline "not visible" glyph.
+const searchBarEl       = () => document.getElementById('search-bar');
+const searchInputEl     = () => document.getElementById('search-input');
+const replaceInputEl    = () => document.getElementById('replace-input');
+const searchCountEl     = () => document.getElementById('search-count');
+const searchNotVisEl    = () => document.getElementById('search-not-visible');
+const searchReplaceRow  = () => document.querySelector('.search-replace-row');
+
+function updateSearchCounter(N, M, activeOrdinal) {
+  const el = searchCountEl();
+  if (!el) return;
+  if (!N) { el.textContent = ''; return; }
+  const cur = (activeOrdinal >= 0) ? activeOrdinal + 1 : 0;
+  el.textContent = (M < N)
+    ? `${cur} of ${N} (${M} in preview)`
+    : `${cur} of ${N}`;
+}
+function updateSearchPill(show) {
+  const el = searchNotVisEl();
+  if (el) el.hidden = !show;
+}
+
+// Open + focus the search bar; pre-fill from current selection when possible.
+function openSearchBar() {
+  const bar = searchBarEl();
+  if (!bar) return;
+  bar.hidden = false;
+  // CM6's searchHighlighter only paints decorations when the built-in
+  // search panel is OPEN (it short-circuits on `!panel`). We open it
+  // programmatically and hide its UI via CSS so our custom bar is the
+  // only visible search affordance.
+  if (cm && CM.openSearchPanel) CM.openSearchPanel(cm);
+  const input = searchInputEl();
+  if (cm) {
+    const sel = cm.state.selection.main;
+    if (!sel.empty) {
+      const seed = cm.state.sliceDoc(sel.from, sel.to);
+      if (seed && !seed.includes('\n')) input.value = seed;
+    }
+  }
+  input.focus();
+  input.select();
+  pushSearchQuery();
+  scheduleAlignmentTicks();
+}
+function closeSearchBar() {
+  const bar = searchBarEl();
+  if (!bar) return;
+  bar.hidden = true;
+  if (cm && CM.setSearchQuery) {
+    cm.dispatch({ effects: CM.setSearchQuery.of(new CM.SearchQuery({ search: '' })) });
+  }
+  if (cm && CM.closeSearchPanel) CM.closeSearchPanel(cm);
+  clearSearchVisuals();
+  if (cm) cm.focus();
+  scheduleAlignmentTicks();
+}
+// Push the bar's current input + flags into CM6's search state, which
+// drives the in-editor match decorations and findNext/replaceAll commands.
+function pushSearchQuery() {
+  if (!cm || !CM.setSearchQuery || !CM.SearchQuery) return;
+  const input = searchInputEl();
+  const flags = readSearchFlagsFromBar();
+  const sq = new CM.SearchQuery({
+    search: input.value || '',
+    caseSensitive: flags.caseSensitive,
+    wholeWord: flags.wholeWord,
+    regexp: flags.regex,
+    replace: replaceInputEl().value || '',
+  });
+  cm.dispatch({ effects: CM.setSearchQuery.of(sq) });
+  syncSearchToPreview();
+}
+function searchNext() {
+  if (!cm || !CM.findNext) return;
+  pushSearchQuery();
+  CM.findNext(cm);
+  syncSearchToPreview();
+}
+function searchPrev() {
+  if (!cm || !CM.findPrevious) return;
+  pushSearchQuery();
+  CM.findPrevious(cm);
+  syncSearchToPreview();
+}
+function searchReplaceOnce() {
+  if (!cm || !CM.replaceNext) return;
+  pushSearchQuery();
+  CM.replaceNext(cm);
+}
+function searchReplaceAll() {
+  if (!cm || !CM.replaceAll) return;
+  pushSearchQuery();
+  CM.replaceAll(cm);
+}
+function toggleReplaceRow() {
+  const row = searchReplaceRow();
+  const btn = document.getElementById('search-replace-toggle');
+  if (!row || !btn) return;
+  const showing = !row.hidden;
+  row.hidden = showing;
+  btn.classList.toggle('expanded', !showing);
+}
+function wireSearchBar() {
+  const input = searchInputEl();
+  if (!input) return;
+  input.addEventListener('input', pushSearchQuery);
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape')      { e.preventDefault(); closeSearchBar(); }
+    else if (e.key === 'Enter')  { e.preventDefault(); e.shiftKey ? searchPrev() : searchNext(); }
+  });
+  replaceInputEl().addEventListener('input', pushSearchQuery);
+  replaceInputEl().addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { e.preventDefault(); closeSearchBar(); }
+    else if (e.key === 'Enter') { e.preventDefault(); searchReplaceOnce(); }
+  });
+  document.getElementById('search-prev').addEventListener('click', searchPrev);
+  document.getElementById('search-next').addEventListener('click', searchNext);
+  document.getElementById('search-close').addEventListener('click', closeSearchBar);
+  document.getElementById('search-replace-toggle').addEventListener('click', toggleReplaceRow);
+  document.getElementById('replace-once').addEventListener('click', searchReplaceOnce);
+  document.getElementById('replace-all').addEventListener('click', searchReplaceAll);
+  for (const id of ['search-toggle-case', 'search-toggle-word', 'search-toggle-regex']) {
+    document.getElementById(id).addEventListener('click', (e) => {
+      const b = e.currentTarget;
+      const on = b.getAttribute('aria-pressed') === 'true';
+      b.setAttribute('aria-pressed', on ? 'false' : 'true');
+      pushSearchQuery();
+    });
+  }
 }
 
 // rAF coalesce: under fast scroll, dozens of scroll events fire per frame.
@@ -681,11 +958,23 @@ function getPreviewAlignmentState() {
   const kinds = cache.blocks.map(b => b.kind);
   const cursorOrdinal = getCursorBlockOrdinal();
   let cursorTickY = null;
-  if (cursorOrdinal >= 0 && cursorOrdinal < cache.blocks.length) {
-    // Live read instead of cached top — preview block may have shifted
-    // since cache was built (mermaid/katex async layout).
-    const liveTop = elDocTop(cache.blocks[cursorOrdinal].el, win);
-    const y = liveTop - win.scrollY;
+  if (cursorOrdinal >= 0 && cursorOrdinal < cache.blocks.length && cm) {
+    // Line-level (v0.2.4): interpolate the cursor's source line within
+    // the matching preview block by data-sourcepos.
+    const blockEl = cache.blocks[cursorOrdinal].el;
+    const liveTop = elDocTop(blockEl, win);
+    const blockHeight = blockEl.offsetHeight;
+    const cursorLine = cm.state.doc.lineAt(cm.state.selection.main.head).number;
+    const sp = parseSourcepos(blockEl);
+    let lineDocY;
+    if (sp && sp[1] >= sp[0]) {
+      lineDocY = window.md4xAlignmentMath.lineYInBlock(
+        cursorLine, sp[0], sp[1], liveTop, blockHeight
+      );
+    } else {
+      lineDocY = liveTop;
+    }
+    const y = lineDocY - win.scrollY;
     if (y >= 0 && y <= win.innerHeight) cursorTickY = y;
   }
   return {
@@ -778,7 +1067,11 @@ function syncWindowTitle() {
 }
 
 // ── Welcome / file lifecycle ────────────────────────────────────────────────
-function showWelcome() { renderRecent(); welcome.hidden = false; }
+function showWelcome() {
+  renderRecent();
+  welcome.hidden = false;
+  if (welcomeClose) welcomeClose.hidden = !(currentFilePath || editorText());
+}
 function hideWelcome() { welcome.hidden = true; }
 
 function setEditorContent(text, filePath) {
@@ -1169,9 +1462,10 @@ function applyRender(iframe, html, userMacrosJson) {
   // mermaid re-layouts that finish AFTER applyRender returns.
   invalidatePreviewBlocksCache();
   rafSchedSync('editorCursor', syncPreviewFromCursor);
-  setTimeout(() => { invalidatePreviewBlocksCache(); syncPreviewFromCursor(); scheduleAlignmentTicks(); }, 250);
-  setTimeout(() => { invalidatePreviewBlocksCache(); syncPreviewFromCursor(); scheduleAlignmentTicks(); }, 1000);
+  setTimeout(() => { invalidatePreviewBlocksCache(); syncPreviewFromCursor(); scheduleAlignmentTicks(); syncSearchToPreview(); }, 250);
+  setTimeout(() => { invalidatePreviewBlocksCache(); syncPreviewFromCursor(); scheduleAlignmentTicks(); syncSearchToPreview(); }, 1000);
   scheduleAlignmentTicks();
+  syncSearchToPreview();
 }
 
 function bootstrapIframe(iframe, html) {
@@ -1185,6 +1479,22 @@ function attachIframeHandlers(iframe) {
   const doc = iframe.contentDocument;
   const win = iframe.contentWindow;
   if (!doc || !win) return;
+  // Persistent scrollbar styling — overlay scrollbar fades out at rest;
+  // we want it visible whenever the doc overflows. `scrollbar-gutter:
+  // stable` reserves room only when needed, so empty docs in a large
+  // window don't sprout an empty rail.
+  if (!doc.getElementById('md4x-scrollbar-css')) {
+    const s = doc.createElement('style');
+    s.id = 'md4x-scrollbar-css';
+    s.textContent = [
+      'html { scrollbar-gutter: stable; }',
+      'html::-webkit-scrollbar { width: 10px; height: 10px; background: transparent; }',
+      'html::-webkit-scrollbar-thumb { background: rgba(60, 60, 67, 0.32); border-radius: 5px; border: 2px solid transparent; background-clip: content-box; min-height: 28px; }',
+      'html::-webkit-scrollbar-thumb:hover { background: rgba(60, 60, 67, 0.55); background-clip: content-box; border: 2px solid transparent; }',
+      'html::-webkit-scrollbar-track { background: transparent; }',
+    ].join('\n');
+    doc.head && doc.head.appendChild(s);
+  }
   doc.addEventListener('contextmenu', e => { e.preventDefault(); e.stopPropagation(); }, true);
   doc.addEventListener('mousedown', e => { if (e.button === 2) { e.preventDefault(); e.stopPropagation(); } }, true);
   doc.addEventListener('mouseup',   e => { if (e.button === 2) { e.preventDefault(); e.stopPropagation(); } }, true);
@@ -1216,7 +1526,13 @@ function attachIframeHandlers(iframe) {
   // corresponding lezer block.
   doc.addEventListener('click', (e) => {
     if (iframe !== activeIframe()) return;
-    syncEditorFromPreviewClick(win, e.target);
+    // Block link navigation — preview is read-only-ish; we only use
+    // clicks for cursor sync. Without this, anchor clicks would
+    // replace the iframe with the target URL and the preview would
+    // never recover until next render.
+    const a = e.target && e.target.closest && e.target.closest('a[href]');
+    if (a) { e.preventDefault(); e.stopPropagation(); }
+    syncEditorFromPreviewClick(win, e);
   });
   fitPage(iframe);
   if (win.ResizeObserver) {
@@ -1353,7 +1669,10 @@ async function switchTemplate(newTemplate) {
   await bootstrapIframe(inactive, result.html);
   const active = activeIframe();
   inactive.style.opacity = '1';
-  inactive.style.pointerEvents = '';
+  // Force inline 'auto' — empty string falls through to the
+  // `#preview-b { pointer-events: none }` CSS rule so iframeB would
+  // stay click-blocked even when it becomes the active iframe.
+  inactive.style.pointerEvents = 'auto';
   active.style.opacity = '0';
   active.style.pointerEvents = 'none';
   activeFrame = activeFrame === 'a' ? 'b' : 'a';
@@ -1531,12 +1850,21 @@ gallery.addEventListener('click', (e) => { if (e.target === gallery) gallery.hid
     dragging = false;
     resizer.classList.remove('dragging');
     panes.classList.remove('dragging');
+    document.body.classList.remove('md4x-splitter-dragging');
     document.body.style.cursor = '';
     document.body.style.userSelect = '';
     if (window.md4xAlignmentTicks) {
       window.md4xAlignmentTicks.setSplitterDragActive(false);
       window.md4xAlignmentTicks.schedule();
     }
+    // Single reflow with the final width — instead of one per mousemove
+    // tick. ResizeObserver / KaTeX / mermaid layout was the dominant
+    // cost during drag; the body class above also freezes pointer-events
+    // on the iframes so they don't churn while the splitter moves.
+    invalidatePreviewBlocksCache();
+    const iframe = activeIframe();
+    if (iframe) fitPage(iframe);
+    rafSchedSync('editorCursor', syncPreviewFromCursor);
   }
   resizer.addEventListener('mousedown', e => {
     dragging = true;
@@ -1544,21 +1872,32 @@ gallery.addEventListener('click', (e) => { if (e.target === gallery) gallery.hid
     startW = editorPane.getBoundingClientRect().width;
     resizer.classList.add('dragging');
     panes.classList.add('dragging');
+    document.body.classList.add('md4x-splitter-dragging');
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
     if (window.md4xAlignmentTicks) window.md4xAlignmentTicks.setSplitterDragActive(true);
     e.preventDefault();
   });
+  // rAF-coalesce the width write. Trackpad / 120Hz mice fire mousemove
+  // faster than display refresh; without coalescing the iframe gets
+  // 2+ width changes per frame and WKWebView's compositor layer
+  // invalidates mid-paint, leaving the preview blank on fast drags of
+  // large docs. One write per frame keeps it in paint.
+  let pendingDragW = -1;
+  let dragRafScheduled = false;
   document.addEventListener('mousemove', e => {
     if (!dragging) return;
     const total = panes.getBoundingClientRect().width - 1;
-    const w = Math.max(160, Math.min(total - 160, startW + e.clientX - startX));
-    editorPane.style.flex = 'none';
-    editorPane.style.width = w + 'px';
-    // Each move extends the suspension window so sync stays off until
-    // the user has stopped dragging for ~200ms. Skip alignment-ticks
-    // schedule during drag — the module gates work on its own drag flag.
+    pendingDragW = Math.max(160, Math.min(total - 160, startW + e.clientX - startX));
     suspendSync(200);
+    if (dragRafScheduled) return;
+    dragRafScheduled = true;
+    requestAnimationFrame(() => {
+      dragRafScheduled = false;
+      if (!dragging || pendingDragW < 0) return;
+      editorPane.style.flex = 'none';
+      editorPane.style.width = pendingDragW + 'px';
+    });
   });
   document.addEventListener('mouseup', endDrag);
   window.addEventListener('blur', endDrag);
@@ -1588,9 +1927,11 @@ window.addEventListener('keydown', e => {
   if (e.key === 'Escape' && !settingsEl.hidden) { settingsEl.hidden = true; return; }
   if (e.key === 'Escape' && !undefModal.hidden) { closeUndefModal(); return; }
   if (e.key === 'Escape' && !helpModal.hidden) { closeHelp(); return; }
+  if (e.key === 'Escape' && !welcome.hidden && (currentFilePath || editorText())) { hideWelcome(); return; }
+  if (e.key === 'Escape' && isSearchPanelOpen()) { closeSearchBar(); return; }
   if (!(e.metaKey || e.ctrlKey)) return;
   const k = e.key.toLowerCase();
-  if (k === 'o' && !e.shiftKey && !e.altKey) { e.preventDefault(); openFile(); }
+  if (k === 'o' && !e.shiftKey && !e.altKey) { e.preventDefault(); showWelcome(); }
   else if (k === 's' && !e.shiftKey && !e.altKey) { e.preventDefault(); saveFile(); }
   else if (k === 's' && e.shiftKey && !e.altKey) { e.preventDefault(); saveFileAs(); }
   else if (k === 'e' && !e.shiftKey && !e.altKey) { e.preventDefault(); if (!exportBtn.disabled) exportBtn.click(); }
@@ -1599,6 +1940,8 @@ window.addEventListener('keydown', e => {
     if (isDirty) showConfirmClose(); else newDraft();
   }
   else if (e.key === ',' && !e.shiftKey && !e.altKey) { e.preventDefault(); openSettings(); }
+  else if (k === 'f' && !e.shiftKey && !e.altKey) { e.preventDefault(); openSearchBar(); }
+  else if (k === 'g' && !e.altKey) { e.preventDefault(); e.shiftKey ? searchPrev() : searchNext(); }
 });
 
 // ── Export PDF dialog (per design §6) ───────────────────────────────────────
@@ -1811,11 +2154,16 @@ async function setupDragDrop() {
   window.addEventListener('drop',     e => e.preventDefault());
 }
 newDraftBtn.addEventListener('click', newDraft);
+if (openFileBtn) openFileBtn.addEventListener('click', () => { openFile(); });
+if (welcomeClose) welcomeClose.addEventListener('click', hideWelcome);
+welcome.addEventListener('mousedown', e => {
+  if (e.target === welcome && (currentFilePath || editorText())) hideWelcome();
+});
 
 // Menu events from the native macOS menu bar (also wired via webview.eval).
 if (window.__TAURI__ && window.__TAURI__.event) {
   window.__TAURI__.event.listen('md4x_menu', (ev) => {
-    if (ev.payload === 'open') openFile();
+    if (ev.payload === 'open') showWelcome();
     else if (ev.payload === 'save') saveFile();
     else if (ev.payload === 'save_as') saveFileAs();
     else if (ev.payload === 'export' && !exportBtn.disabled) exportBtn.click();
@@ -1852,7 +2200,11 @@ async function init() {
     if (update.docChanged || update.selectionSet || update.geometryChanged || update.viewportChanged) {
       scheduleAlignmentTicks();
     }
+    // Search query / active match changes → repaint preview highlights.
+    syncSearchToPreview();
   });
+  // Wire the custom search bar (full window-width, both panes).
+  wireSearchBar();
   cm.scrollDOM.addEventListener('scroll', () => {
     scheduleAlignmentTicks();
     if (consumeExpectedScroll('editor', cm.scrollDOM.scrollTop)) return;
